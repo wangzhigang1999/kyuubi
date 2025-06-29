@@ -89,6 +89,8 @@
   :deep(.editor-el-tabs) {
     height: 100%;
     overflow: auto;
+    display: flex;
+    flex-direction: column;
     .el-tabs__header {
       display: flex;
       flex-direction: row-reverse;
@@ -96,6 +98,7 @@
       background: #f5f5f5;
     }
     .el-tabs__content {
+      flex-grow: 1;
       overflow: auto;
       padding: 12px;
       .el-tab-pane {
