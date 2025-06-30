@@ -29,6 +29,9 @@ importers:
       pinia-plugin-persistedstate:
         specifier: ^2.1.1
         version: 2.1.1(pinia@2.0.18(typescript@4.7.4)(vue@3.2.37))
+      splitpanes:
+        specifier: ^4.0.4
+        version: 4.0.4(vue@3.2.37)
       sql-formatter:
         specifier: ^13.0.1
         version: 13.0.1
@@ -1499,6 +1502,11 @@ packages:
   sourcemap-codec@1.4.8:
     resolution: {integrity: sha512-9NykojV5Uih4lgo5So5dtw+f0JgJX30KCNI8gwhz2J9A15wD0Ml6tjHKwf6fTSa6fAdVBdZeNOs9eJ71qCk8vA==}
     deprecated: Please use @jridgewell/sourcemap-codec instead
+
+  splitpanes@4.0.4:
+    resolution: {integrity: sha512-RbysugZhjbCw5fgplvk3hOXr41stahQDtZhHVkhnnJI6H4wlGDhM2kIpbehy7v92duy9GnMa8zIhHigIV1TWtg==}
+    peerDependencies:
+      vue: ^3.2.0
 
   sql-formatter@13.0.1:
     resolution: {integrity: sha512-/tM0H1O2kto6DKv1YuaZa75PMr1J9vTHj5aMu3GF0coKskWUNNcHCvtE1YBHpoFEuKnGUqxAwEpeAH+BAcZcEQ==}
@@ -3215,6 +3223,10 @@ snapshots:
   source-map@0.6.1: {}
 
   sourcemap-codec@1.4.8: {}
+
+  splitpanes@4.0.4(vue@3.2.37):
+    dependencies:
+      vue: 3.2.37
 
   sql-formatter@13.0.1:
     dependencies:
