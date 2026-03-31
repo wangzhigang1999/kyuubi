@@ -28,14 +28,12 @@ import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionMessageFunctionToolCall;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
 import com.openai.models.chat.completions.ChatCompletionMessageToolCall;
-import com.openai.models.chat.completions.ChatCompletionTool;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
-import org.apache.kyuubi.engine.dataagent.tool.AgentTool;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -222,12 +220,9 @@ public class ReactAgent {
         paramsBuilder.addMessage(msg);
       }
 
-      // Add tool specs
-      List<ChatCompletionTool> tools = toolRegistry.toChatCompletionTools();
-      if (!tools.isEmpty()) {
-        for (ChatCompletionTool tool : tools) {
-          paramsBuilder.addTool(tool);
-        }
+      // Add tool specs via SDK's built-in addTool(Class)
+      if (!toolRegistry.isEmpty()) {
+        toolRegistry.addToolsTo(paramsBuilder);
       }
 
       ChatCompletionCreateParams params = paramsBuilder.build();
@@ -280,20 +275,9 @@ public class ReactAgent {
     }
   }
 
-  @SuppressWarnings("unchecked")
   private String executeTool(
       String toolName, ChatCompletionMessageFunctionToolCall.Function function) {
-    AgentTool<?> tool = toolRegistry.get(toolName);
-    if (tool == null) {
-      return "Error: unknown tool '" + toolName + "'";
-    }
-    try {
-      Object typedArgs = function.arguments(tool.argsType());
-      return ((AgentTool<Object>) tool).execute(typedArgs);
-    } catch (Exception e) {
-      LOG.error("Tool execution error: {}", toolName, e);
-      return "Error executing " + toolName + ": " + e.getMessage();
-    }
+    return toolRegistry.executeTool(toolName, function.arguments());
   }
 
   private static Map<String, Object> parseToolArgs(String json) {

@@ -17,15 +17,11 @@
 
 package org.apache.kyuubi.engine.dataagent.tool;
 
-import com.fasterxml.jackson.annotation.JsonClassDescription;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 
-/** Strongly typed arguments for {@link SchemaInspectTool}. */
-@JsonClassDescription("Describe database schema")
+/** Parameter schema for {@link SchemaInspectTool}. */
 public class SchemaInspectArgs {
 
-  @JsonProperty(defaultValue = "")
   @JsonPropertyDescription("Table name to describe. Empty or omitted to list all tables.")
   public String tableName = "";
 }

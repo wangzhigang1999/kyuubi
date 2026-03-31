@@ -26,8 +26,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Generates JSON Schema from annotated Java classes using Jackson annotations. No dependency on any
- * LLM provider SDK.
+ * Generates JSON Schema from annotated Java classes using Jackson annotations. Used to build the
+ * {@code parameters} section of OpenAI function definitions.
  */
 public class ToolSchemaGenerator {
 

@@ -18,10 +18,14 @@
 package org.apache.kyuubi.engine.dataagent.tool;
 
 /**
- * Base interface for tools that the Data Agent can invoke during its ReAct loop. Each tool
- * represents a capability like schema inspection, SQL execution, or glossary lookup.
+ * Base interface for agent tools. Separates tool metadata (name, description) and execution logic
+ * from the parameter schema (the args class with {@code @JsonPropertyDescription} annotations).
  *
- * @param <T> the strongly typed arguments class for this tool
+ * <p>The args class defines parameter fields for JSON Schema generation and SDK deserialization.
+ * The tool implementation holds runtime dependencies (e.g. DataSource) and performs the actual
+ * work.
+ *
+ * @param <T> the args class with fields annotated by {@code @JsonPropertyDescription}
  */
 public interface AgentTool<T> {
 
@@ -31,19 +35,11 @@ public interface AgentTool<T> {
   /** Description shown to the LLM to help it decide when to use this tool. */
   String description();
 
-  /** Returns the class of the arguments type for JSON deserialization and schema generation. */
+  /** Returns the args class for JSON Schema generation and deserialization. */
   Class<T> argsType();
 
   /**
-   * Whether this tool is read-only (no side effects). Read-only tools are auto-approved in NORMAL
-   * approval mode.
-   */
-  default boolean isReadonly() {
-    return true;
-  }
-
-  /**
-   * Execute the tool with the given strongly typed arguments.
+   * Execute the tool with the given deserialized arguments.
    *
    * @param args the deserialized arguments from the LLM's tool call
    * @return the result string to feed back to the LLM

@@ -17,61 +17,73 @@
 
 package org.apache.kyuubi.engine.dataagent.tool;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.core.JsonValue;
 import com.openai.models.FunctionDefinition;
 import com.openai.models.FunctionParameters;
+import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionFunctionTool;
 import com.openai.models.chat.completions.ChatCompletionTool;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
-import org.apache.kyuubi.engine.dataagent.agent.ApprovalMode;
 
 /**
- * Registry for agent tools. Provides lookup, approval checking, and OpenAI tool spec generation.
- * Uses {@link ToolSchemaGenerator} to auto-generate JSON Schema from tool args types.
+ * Registry for agent tools. Provides tool lookup, schema generation for LLM requests, and
+ * deserialization + execution of tool calls.
+ *
+ * <p>Tool metadata (name, description) comes from {@link AgentTool}. Parameter schemas are
+ * generated from the args class via {@link ToolSchemaGenerator}. The SDK's {@code
+ * function.arguments(Class)} is used for deserializing LLM responses.
  */
 public class ToolRegistry {
 
+  private static final ObjectMapper JSON = new ObjectMapper();
+
   private final Map<String, AgentTool<?>> tools = new LinkedHashMap<>();
 
+  /** Register a tool. Keyed by {@link AgentTool#name()}. */
   public ToolRegistry register(AgentTool<?> tool) {
     tools.put(tool.name(), tool);
     return this;
-  }
-
-  public AgentTool<?> get(String name) {
-    return tools.get(name);
-  }
-
-  public List<AgentTool<?>> listTools() {
-    return Collections.unmodifiableList(new ArrayList<>(tools.values()));
-  }
-
-  /** Returns OpenAI ChatCompletionTool specs for the LLM request. */
-  public List<ChatCompletionTool> toChatCompletionTools() {
-    List<ChatCompletionTool> result = new ArrayList<>();
-    for (AgentTool<?> tool : tools.values()) {
-      result.add(toChatCompletionTool(tool));
-    }
-    return result;
   }
 
   public boolean isEmpty() {
     return tools.isEmpty();
   }
 
-  public boolean requiresApproval(String toolName, ApprovalMode mode) {
-    if (mode == ApprovalMode.YOLO) return false;
-    if (mode == ApprovalMode.STRICT) return true;
-    AgentTool<?> tool = tools.get(toolName);
-    if (tool == null) return true;
-    return !tool.isReadonly();
+  /** Add all tools to the ChatCompletion request builder. */
+  public void addToolsTo(ChatCompletionCreateParams.Builder builder) {
+    for (AgentTool<?> tool : tools.values()) {
+      builder.addTool(buildChatCompletionTool(tool));
+    }
   }
 
-  private static ChatCompletionTool toChatCompletionTool(AgentTool<?> tool) {
+  /**
+   * Execute a tool call: deserialize the JSON args, then delegate to the tool.
+   *
+   * @param toolName the function name from the LLM response
+   * @param argsJson the raw JSON arguments string
+   * @return the result string, or an error message
+   */
+  @SuppressWarnings("unchecked")
+  public String executeTool(String toolName, String argsJson) {
+    AgentTool<?> tool = tools.get(toolName);
+    if (tool == null) {
+      return "Error: unknown tool '" + toolName + "'";
+    }
+    return executeTyped((AgentTool<Object>) tool, argsJson);
+  }
+
+  private static <T> String executeTyped(AgentTool<T> tool, String argsJson) {
+    try {
+      T args = JSON.readValue(argsJson, tool.argsType());
+      return tool.execute(args);
+    } catch (Exception e) {
+      return "Error executing " + tool.name() + ": " + e.getMessage();
+    }
+  }
+
+  private static ChatCompletionTool buildChatCompletionTool(AgentTool<?> tool) {
     Map<String, Object> schema = ToolSchemaGenerator.generateSchema(tool.argsType());
 
     FunctionParameters.Builder paramsBuilder = FunctionParameters.builder();

@@ -17,12 +17,10 @@
 
 package org.apache.kyuubi.engine.dataagent.tool;
 
-import com.fasterxml.jackson.annotation.JsonClassDescription;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 
-/** Strongly typed arguments for {@link SqlQueryTool}. */
-@JsonClassDescription("Execute a SQL SELECT query to retrieve data")
+/** Parameter schema for {@link SqlQueryTool}. */
 public class SqlQueryArgs {
 
   @JsonProperty(required = true)
