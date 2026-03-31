@@ -17,23 +17,27 @@
 
 package org.apache.kyuubi.engine.dataagent.provider;
 
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
-import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import com.openai.client.OpenAIClient;
+import com.openai.client.okhttp.OpenAIOkHttpClient;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
+import javax.sql.DataSource;
 import org.apache.kyuubi.config.KyuubiConf;
 import org.apache.kyuubi.engine.dataagent.agent.AgentEvent;
 import org.apache.kyuubi.engine.dataagent.agent.ApprovalMode;
 import org.apache.kyuubi.engine.dataagent.agent.ConversationMemory;
 import org.apache.kyuubi.engine.dataagent.agent.ReactAgent;
+import org.apache.kyuubi.engine.dataagent.tool.SchemaInspectTool;
+import org.apache.kyuubi.engine.dataagent.tool.SqlQueryTool;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.sqlite.SQLiteDataSource;
 
 /**
  * An OpenAI-compatible provider that wires up the full ReactAgent with streaming LLM, tools, and
- * middleware pipeline.
+ * middleware pipeline. Uses the official OpenAI Java SDK.
  */
 public class OpenAiProvider implements DataAgentProvider {
 
@@ -42,7 +46,8 @@ public class OpenAiProvider implements DataAgentProvider {
   private static final String SYSTEM_PROMPT =
       "You are a data analysis agent. You query databases and explain data — nothing else.\n"
           + "You write and execute SQL to answer questions. You never fabricate data.\n"
-          + "When uncertain about data meaning, ask the user rather than assuming.";
+          + "When uncertain about data meaning, ask the user rather than assuming.\n"
+          + "Always call describe_schema first to understand the database before writing SQL.";
 
   private final ReactAgent agent;
   private final int maxMessages;
@@ -55,24 +60,26 @@ public class OpenAiProvider implements DataAgentProvider {
           KyuubiConf.ENGINE_DATA_AGENT_LLM_API_KEY().key() + " is required for OpenAI provider");
     }
     String apiKey = apiKeyOpt.get();
+    String baseUrl = conf.get(KyuubiConf.ENGINE_DATA_AGENT_LLM_API_URL());
+    String modelName = conf.get(KyuubiConf.ENGINE_DATA_AGENT_LLM_MODEL());
 
-    StreamingChatLanguageModel model =
-        OpenAiStreamingChatModel.builder()
-            .apiKey(apiKey)
-            .baseUrl(conf.get(KyuubiConf.ENGINE_DATA_AGENT_LLM_API_URL()))
-            .modelName(conf.get(KyuubiConf.ENGINE_DATA_AGENT_LLM_MODEL()))
-            .build();
+    OpenAIClient client = OpenAIOkHttpClient.builder().apiKey(apiKey).baseUrl(baseUrl).build();
 
     int maxIterations = (int) conf.get(KyuubiConf.ENGINE_DATA_AGENT_MAX_ITERATIONS());
 
-    // TODO: register tools (schema_inspect, sql_query, find_relationships, glossary)
+    // Register tools
     ToolRegistry toolRegistry = new ToolRegistry();
-
-    // TODO: register middlewares (verification, guardrails, deadline, compaction)
+    scala.Option<String> jdbcUrlOpt = conf.get(KyuubiConf.ENGINE_DATA_AGENT_JDBC_URL());
+    if (jdbcUrlOpt.isDefined()) {
+      DataSource ds = createDataSource(jdbcUrlOpt.get());
+      toolRegistry.register(new SchemaInspectTool(ds));
+      toolRegistry.register(new SqlQueryTool(ds));
+    }
 
     this.agent =
         ReactAgent.builder()
-            .model(model)
+            .client(client)
+            .modelName(modelName)
             .toolRegistry(toolRegistry)
             .maxIterations(maxIterations)
             .systemPrompt(SYSTEM_PROMPT)
@@ -102,5 +109,14 @@ public class OpenAiProvider implements DataAgentProvider {
   public void close(String sessionId) {
     sessions.remove(sessionId);
     LOG.info("Closed Data Agent session {}", sessionId);
+  }
+
+  private static DataSource createDataSource(String jdbcUrl) {
+    if (jdbcUrl.startsWith("jdbc:sqlite:")) {
+      SQLiteDataSource ds = new SQLiteDataSource();
+      ds.setUrl(jdbcUrl);
+      return ds;
+    }
+    throw new IllegalArgumentException("Unsupported JDBC URL: " + jdbcUrl);
   }
 }

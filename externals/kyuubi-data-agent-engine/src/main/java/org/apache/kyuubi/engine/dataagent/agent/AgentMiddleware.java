@@ -17,8 +17,8 @@
 
 package org.apache.kyuubi.engine.dataagent.agent;
 
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
+import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam;
+import com.openai.models.chat.completions.ChatCompletionMessageParam;
 import java.util.List;
 import java.util.Map;
 
@@ -38,20 +38,17 @@ public interface AgentMiddleware {
 
   /**
    * Called before each LLM invocation. Return non-null to skip the LLM call. Runs first-to-last.
-   *
-   * @return a decision to skip/modify, or null to proceed normally
    */
-  default LlmRequestDecision beforeLlmCall(AgentContext ctx, List<ChatMessage> messages) {
+  default LlmRequestDecision beforeLlmCall(
+      AgentContext ctx, List<ChatCompletionMessageParam> messages) {
     return null;
   }
 
   /** Called after each LLM invocation. Runs last-to-first. */
-  default void afterLlmCall(AgentContext ctx, AiMessage response) {}
+  default void afterLlmCall(AgentContext ctx, ChatCompletionAssistantMessageParam response) {}
 
   /**
    * Called before each tool execution. Return non-null to deny/modify the call. Runs first-to-last.
-   *
-   * @return a decision to deny/modify, or null to proceed normally
    */
   default ToolCallDecision beforeToolCall(
       AgentContext ctx, String toolName, Map<String, Object> toolArgs) {
@@ -61,8 +58,6 @@ public interface AgentMiddleware {
   /**
    * Called after each tool execution. Return non-null to override the tool result. Runs
    * last-to-first.
-   *
-   * @return modified result string, or null to keep the original
    */
   default String afterToolCall(
       AgentContext ctx, String toolName, Map<String, Object> toolArgs, String result) {
@@ -70,8 +65,8 @@ public interface AgentMiddleware {
   }
 
   /**
-   * Called for every event before it is emitted. Return null to suppress the event, or a modified
-   * event. Runs first-to-last.
+   * Called for every event before it is emitted. Return null to suppress the event. Runs
+   * first-to-last.
    */
   default AgentEvent onEvent(AgentContext ctx, AgentEvent event) {
     return event;

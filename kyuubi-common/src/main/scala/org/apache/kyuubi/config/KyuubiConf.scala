@@ -3822,6 +3822,14 @@ object KyuubiConf {
       .checkValue(_ > 0, "must be positive number")
       .createWithDefault(20)
 
+  val ENGINE_DATA_AGENT_JDBC_URL: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.data.agent.jdbc.url")
+      .doc("The JDBC URL for the Data Agent engine to connect to the target database. " +
+        "In production, this should be replaced by Kyuubi internal engine connection.")
+      .version("1.11.0")
+      .stringConf
+      .createOptional
+
   val ENGINE_JDBC_MEMORY: ConfigEntry[String] =
     buildConf("kyuubi.engine.jdbc.memory")
       .doc("The heap memory for the JDBC query engine")

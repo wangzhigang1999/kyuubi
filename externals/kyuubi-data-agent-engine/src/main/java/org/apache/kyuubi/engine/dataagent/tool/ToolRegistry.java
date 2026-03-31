@@ -17,6 +17,11 @@
 
 package org.apache.kyuubi.engine.dataagent.tool;
 
+import com.openai.core.JsonValue;
+import com.openai.models.FunctionDefinition;
+import com.openai.models.FunctionParameters;
+import com.openai.models.chat.completions.ChatCompletionFunctionTool;
+import com.openai.models.chat.completions.ChatCompletionTool;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -24,7 +29,9 @@ import java.util.List;
 import java.util.Map;
 import org.apache.kyuubi.engine.dataagent.agent.ApprovalMode;
 
-/** Registry for agent tools. Provides lookup, approval checking, and LLM tool spec generation. */
+/**
+ * Registry for agent tools. Provides lookup, approval checking, and OpenAI tool spec generation.
+ */
 public class ToolRegistry {
 
   private final Map<String, AgentTool> tools = new LinkedHashMap<>();
@@ -42,30 +49,60 @@ public class ToolRegistry {
     return Collections.unmodifiableList(new ArrayList<>(tools.values()));
   }
 
-  /**
-   * Determines if a tool requires user approval under the given mode.
-   *
-   * @return true if approval is required
-   */
+  /** Returns OpenAI ChatCompletionTool specs for the LLM request. */
+  public List<ChatCompletionTool> toChatCompletionTools() {
+    List<ChatCompletionTool> result = new ArrayList<>();
+    for (AgentTool tool : tools.values()) {
+      result.add(toChatCompletionTool(tool));
+    }
+    return result;
+  }
+
+  public boolean isEmpty() {
+    return tools.isEmpty();
+  }
+
   public boolean requiresApproval(String toolName, ApprovalMode mode) {
     if (mode == ApprovalMode.YOLO) return false;
     if (mode == ApprovalMode.STRICT) return true;
-    // NORMAL mode: readonly tools are auto-approved
     AgentTool tool = tools.get(toolName);
-    if (tool == null) return true; // unknown tools require approval
+    if (tool == null) return true;
     return !tool.isReadonly();
   }
 
-  /** Format tool descriptions for inclusion in the system prompt. */
-  public String formatToolDescriptions() {
-    StringBuilder sb = new StringBuilder();
-    for (AgentTool tool : tools.values()) {
-      sb.append("- **").append(tool.name()).append("**: ").append(tool.description());
-      if (tool.isReadonly()) {
-        sb.append(" [readonly]");
-      }
-      sb.append("\n");
+  private static ChatCompletionTool toChatCompletionTool(AgentTool tool) {
+    // Build JSON Schema for function parameters using JsonValue
+    Map<String, JsonValue> properties = new LinkedHashMap<>();
+    List<JsonValue> required = new ArrayList<>();
+
+    if ("describe_schema".equals(tool.name())) {
+      Map<String, Object> tableNameSchema = new LinkedHashMap<>();
+      tableNameSchema.put("type", "string");
+      tableNameSchema.put("description", "Table name to describe. Empty to list all tables.");
+      properties.put("table_name", JsonValue.from(tableNameSchema));
+    } else if ("sql_query".equals(tool.name())) {
+      Map<String, Object> sqlSchema = new LinkedHashMap<>();
+      sqlSchema.put("type", "string");
+      sqlSchema.put("description", "A valid SQL SELECT query.");
+      properties.put("sql", JsonValue.from(sqlSchema));
+      required.add(JsonValue.from("sql"));
     }
-    return sb.toString();
+
+    FunctionParameters params =
+        FunctionParameters.builder()
+            .putAdditionalProperty("type", JsonValue.from("object"))
+            .putAdditionalProperty("properties", JsonValue.from(properties))
+            .putAdditionalProperty("required", JsonValue.from(required))
+            .build();
+
+    return ChatCompletionTool.ofFunction(
+        ChatCompletionFunctionTool.builder()
+            .function(
+                FunctionDefinition.builder()
+                    .name(tool.name())
+                    .description(tool.description())
+                    .parameters(params)
+                    .build())
+            .build());
   }
 }

@@ -17,11 +17,11 @@
 
 package org.apache.kyuubi.engine.dataagent.agent;
 
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
-import dev.langchain4j.data.message.UserMessage;
+import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam;
+import com.openai.models.chat.completions.ChatCompletionMessageParam;
+import com.openai.models.chat.completions.ChatCompletionSystemMessageParam;
+import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
+import com.openai.models.chat.completions.ChatCompletionUserMessageParam;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -34,7 +34,7 @@ public class ConversationMemory {
 
   private final int maxMessages;
   private String systemPrompt;
-  private final List<ChatMessage> messages = new ArrayList<>();
+  private final List<ChatCompletionMessageParam> messages = new ArrayList<>();
   private int persistedCount = 0;
 
   public ConversationMemory(int maxMessages) {
@@ -46,25 +46,34 @@ public class ConversationMemory {
   }
 
   public void addUserMessage(String content) {
-    messages.add(UserMessage.from(content));
+    messages.add(
+        ChatCompletionMessageParam.ofUser(
+            ChatCompletionUserMessageParam.builder().content(content).build()));
   }
 
-  public void addAiMessage(AiMessage message) {
-    messages.add(message);
+  public void addAssistantMessage(ChatCompletionAssistantMessageParam message) {
+    messages.add(ChatCompletionMessageParam.ofAssistant(message));
   }
 
-  public void addToolResult(String toolCallId, String toolName, String content) {
-    messages.add(ToolExecutionResultMessage.from(toolCallId, toolName, content));
+  public void addToolResult(String toolCallId, String content) {
+    messages.add(
+        ChatCompletionMessageParam.ofTool(
+            ChatCompletionToolMessageParam.builder()
+                .toolCallId(toolCallId)
+                .content(content)
+                .build()));
   }
 
   /**
    * Returns the message list for LLM invocation: system prompt + windowed history. Uses smart cut
-   * point to avoid orphaning ToolExecutionResultMessages from their AI message.
+   * point to avoid orphaning tool result messages from their AI message.
    */
-  public List<ChatMessage> getMessages() {
-    List<ChatMessage> result = new ArrayList<>();
+  public List<ChatCompletionMessageParam> getMessages() {
+    List<ChatCompletionMessageParam> result = new ArrayList<>();
     if (systemPrompt != null) {
-      result.add(SystemMessage.from(systemPrompt));
+      result.add(
+          ChatCompletionMessageParam.ofSystem(
+              ChatCompletionSystemMessageParam.builder().content(systemPrompt).build()));
     }
 
     if (messages.size() <= maxMessages) {
@@ -74,9 +83,8 @@ public class ConversationMemory {
 
     // Window from the end, find a safe cut point
     int cutIndex = messages.size() - maxMessages;
-    // Skip past ToolExecutionResultMessages at cut point to avoid orphaning
-    while (cutIndex < messages.size()
-        && messages.get(cutIndex) instanceof ToolExecutionResultMessage) {
+    // Skip past tool result messages at cut point to avoid orphaning
+    while (cutIndex < messages.size() && messages.get(cutIndex).isTool()) {
       cutIndex++;
     }
 
@@ -85,17 +93,17 @@ public class ConversationMemory {
   }
 
   /** Returns messages added since the last persistence checkpoint. */
-  public List<ChatMessage> getNewMessagesSincePersisted() {
+  public List<ChatCompletionMessageParam> getNewMessagesSincePersisted() {
     if (persistedCount >= messages.size()) {
       return Collections.emptyList();
     }
-    List<ChatMessage> newMessages =
+    List<ChatCompletionMessageParam> newMessages =
         new ArrayList<>(messages.subList(persistedCount, messages.size()));
     persistedCount = messages.size();
     return newMessages;
   }
 
-  public List<ChatMessage> getRawMessages() {
+  public List<ChatCompletionMessageParam> getRawMessages() {
     return Collections.unmodifiableList(messages);
   }
 

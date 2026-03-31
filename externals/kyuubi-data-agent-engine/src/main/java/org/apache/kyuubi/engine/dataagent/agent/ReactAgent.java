@@ -17,16 +17,24 @@
 
 package org.apache.kyuubi.engine.dataagent.agent;
 
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
-import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.openai.client.OpenAIClient;
+import com.openai.core.http.StreamResponse;
+import com.openai.models.chat.completions.ChatCompletion;
+import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam;
+import com.openai.models.chat.completions.ChatCompletionChunk;
+import com.openai.models.chat.completions.ChatCompletionCreateParams;
+import com.openai.models.chat.completions.ChatCompletionMessage;
+import com.openai.models.chat.completions.ChatCompletionMessageFunctionToolCall;
+import com.openai.models.chat.completions.ChatCompletionMessageParam;
+import com.openai.models.chat.completions.ChatCompletionMessageToolCall;
+import com.openai.models.chat.completions.ChatCompletionTool;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
 import java.util.function.Consumer;
 import org.apache.kyuubi.engine.dataagent.tool.AgentTool;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
@@ -34,48 +42,33 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * ReAct (Reasoning + Acting) agent loop. Iterates through LLM reasoning, tool execution, and result
- * verification until the agent produces a final answer or hits the iteration limit.
+ * ReAct (Reasoning + Acting) agent loop using the OpenAI official Java SDK. Iterates through LLM
+ * reasoning, tool execution, and result verification until the agent produces a final answer or
+ * hits the iteration limit.
  *
  * <p>Emits {@link AgentEvent}s via the provided consumer for real-time token-level streaming.
- *
- * <p>Architecture mirrors data-insight's react.py:
- *
- * <pre>
- *   for each iteration:
- *     1. emit StepStart
- *     2. build messages from memory
- *     3. dispatch before_llm_call middleware
- *     4. stream LLM response → emit ContentDelta per token
- *     5. dispatch after_llm_call middleware
- *     6. emit ContentComplete
- *     7. if tool_calls:
- *        a. dispatch before_tool_call middleware
- *        b. execute tool
- *        c. dispatch after_tool_call middleware
- *        d. emit ToolResult
- *        e. add tool result to memory
- *        f. continue
- *     8. if no tool_calls → emit AgentFinish, break
- * </pre>
  */
 public class ReactAgent {
 
   private static final Logger LOG = LoggerFactory.getLogger(ReactAgent.class);
+  private static final ObjectMapper JSON = new ObjectMapper();
 
-  private final StreamingChatLanguageModel model;
+  private final OpenAIClient client;
+  private final String modelName;
   private final ToolRegistry toolRegistry;
   private final List<AgentMiddleware> middlewares;
   private final int maxIterations;
   private final String systemPrompt;
 
   public ReactAgent(
-      StreamingChatLanguageModel model,
+      OpenAIClient client,
+      String modelName,
       ToolRegistry toolRegistry,
       List<AgentMiddleware> middlewares,
       int maxIterations,
       String systemPrompt) {
-    this.model = model;
+    this.client = client;
+    this.modelName = modelName;
     this.toolRegistry = toolRegistry;
     this.middlewares = middlewares != null ? middlewares : Collections.emptyList();
     this.maxIterations = maxIterations;
@@ -100,8 +93,6 @@ public class ReactAgent {
     memory.addUserMessage(userInput);
 
     AgentContext ctx = new AgentContext(userInput, memory, approvalMode);
-
-    // Dispatch on_agent_start (first-to-last)
     dispatchAgentStart(ctx);
 
     try {
@@ -110,43 +101,57 @@ public class ReactAgent {
         emit(ctx, new AgentEvent.StepStart(step), eventConsumer);
 
         // 1. Build messages from memory
-        List<ChatMessage> messages = memory.getMessages();
+        List<ChatCompletionMessageParam> messages = memory.getMessages();
 
         // 2. Dispatch before_llm_call middleware
         if (dispatchBeforeLlmCall(ctx, messages)) {
-          continue; // middleware requested skip
+          continue;
         }
 
         // 3. Stream LLM response with token-level events
-        AiMessage aiMessage = streamLlmResponse(ctx, messages, eventConsumer);
-        if (aiMessage == null) {
+        ChatCompletion completion = streamLlmResponse(ctx, messages, eventConsumer);
+        if (completion == null) {
           emit(ctx, new AgentEvent.AgentError("LLM returned null response"), eventConsumer);
           break;
         }
 
-        // 4. Dispatch after_llm_call middleware (last-to-first)
-        dispatchAfterLlmCall(ctx, aiMessage);
+        ChatCompletion.Choice choice = completion.choices().get(0);
+        String content = choice.message().content().orElse("");
 
-        // 5. Emit ContentComplete
-        String fullText = aiMessage.text() != null ? aiMessage.text() : "";
-        emit(ctx, new AgentEvent.ContentComplete(fullText), eventConsumer);
+        // 4. Emit ContentComplete
+        emit(ctx, new AgentEvent.ContentComplete(content), eventConsumer);
 
-        // 6. Add AI message to memory
-        memory.addAiMessage(aiMessage);
+        // 5. Build assistant message and add to memory
+        ChatCompletionAssistantMessageParam.Builder assistantBuilder =
+            ChatCompletionAssistantMessageParam.builder();
+        if (!content.isEmpty()) {
+          assistantBuilder.content(content);
+        }
+
+        List<ChatCompletionMessageToolCall> toolCalls = choice.message().toolCalls().orElse(null);
+        if (toolCalls != null && !toolCalls.isEmpty()) {
+          assistantBuilder.toolCalls(toolCalls);
+        }
+
+        ChatCompletionAssistantMessageParam assistantMsg = assistantBuilder.build();
+        memory.addAssistantMessage(assistantMsg);
+
+        // 6. Dispatch after_llm_call middleware
+        dispatchAfterLlmCall(ctx, assistantMsg);
 
         // 7. Check for tool calls
-        if (aiMessage.hasToolExecutionRequests()) {
-          for (var toolRequest : aiMessage.toolExecutionRequests()) {
-            String toolName = toolRequest.name();
-            // TODO: parse toolRequest.arguments() JSON into Map
-            Map<String, Object> toolArgs = Collections.singletonMap("raw", toolRequest.arguments());
+        if (toolCalls != null && !toolCalls.isEmpty()) {
+          for (ChatCompletionMessageToolCall toolCall : toolCalls) {
+            ChatCompletionMessageFunctionToolCall fnCall = toolCall.asFunction();
+            String toolName = fnCall.function().name();
+            Map<String, Object> toolArgs = parseToolArgs(fnCall.function().arguments());
 
             // Dispatch before_tool_call
             AgentMiddleware.ToolCallDecision decision =
                 dispatchBeforeToolCall(ctx, toolName, toolArgs);
             if (decision != null && !decision.allow()) {
               String denied = "Tool call denied: " + decision.reason();
-              memory.addToolResult(toolRequest.id(), toolName, denied);
+              memory.addToolResult(fnCall.id(), denied);
               emit(ctx, new AgentEvent.ToolResult(toolName, denied, true), eventConsumer);
               continue;
             }
@@ -157,17 +162,16 @@ public class ReactAgent {
             // Execute tool
             String result = executeTool(toolName, toolArgs);
 
-            // Dispatch after_tool_call (last-to-first), may modify result
+            // Dispatch after_tool_call
             String modifiedResult = dispatchAfterToolCall(ctx, toolName, toolArgs, result);
             if (modifiedResult != null) {
               result = modifiedResult;
             }
 
             // Add tool result to memory and emit event
-            memory.addToolResult(toolRequest.id(), toolName, result);
+            memory.addToolResult(fnCall.id(), result);
             emit(ctx, new AgentEvent.ToolResult(toolName, result, false), eventConsumer);
           }
-          // Continue to next iteration for further reasoning
           continue;
         }
 
@@ -187,62 +191,96 @@ public class ReactAgent {
           eventConsumer);
 
     } finally {
-      // Dispatch on_agent_finish (last-to-first)
       dispatchAgentFinish(ctx);
     }
   }
 
   /**
-   * Stream LLM response, emitting ContentDelta for each token chunk. Returns the complete
-   * AiMessage.
+   * Stream LLM response via OpenAI SDK, emitting ContentDelta for each chunk. Returns the
+   * accumulated ChatCompletion.
    */
-  private AiMessage streamLlmResponse(
-      AgentContext ctx, List<ChatMessage> messages, Consumer<AgentEvent> eventConsumer) {
-
-    CountDownLatch latch = new CountDownLatch(1);
-    ChatResponse[] responseHolder = new ChatResponse[1];
-    Throwable[] errorHolder = new Throwable[1];
-
-    // TODO: bind tools to the model for function calling
-    model.chat(
-        messages,
-        new StreamingChatResponseHandler() {
-          @Override
-          public void onPartialResponse(String partialResponse) {
-            // Token-level streaming: emit each chunk immediately
-            emit(ctx, new AgentEvent.ContentDelta(partialResponse), eventConsumer);
-          }
-
-          @Override
-          public void onCompleteResponse(ChatResponse completeResponse) {
-            responseHolder[0] = completeResponse;
-            latch.countDown();
-          }
-
-          @Override
-          public void onError(Throwable throwable) {
-            errorHolder[0] = throwable;
-            latch.countDown();
-          }
-        });
+  private ChatCompletion streamLlmResponse(
+      AgentContext ctx,
+      List<ChatCompletionMessageParam> messages,
+      Consumer<AgentEvent> eventConsumer) {
 
     try {
-      latch.await();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
+      ChatCompletionCreateParams.Builder paramsBuilder =
+          ChatCompletionCreateParams.builder().model(modelName);
+
+      for (ChatCompletionMessageParam msg : messages) {
+        paramsBuilder.addMessage(msg);
+      }
+
+      // Add tool specs
+      List<ChatCompletionTool> tools = toolRegistry.toChatCompletionTools();
+      if (!tools.isEmpty()) {
+        for (ChatCompletionTool tool : tools) {
+          paramsBuilder.addTool(tool);
+        }
+      }
+
+      ChatCompletionCreateParams params = paramsBuilder.build();
+
+      // Stream and accumulate
+      StringBuilder contentAccumulator = new StringBuilder();
+      List<ChatCompletionChunk> allChunks = new ArrayList<>();
+
+      try (StreamResponse<ChatCompletionChunk> stream =
+          client.chat().completions().createStreaming(params)) {
+        stream.stream()
+            .forEach(
+                chunk -> {
+                  allChunks.add(chunk);
+                  // Extract text delta and emit token-level streaming
+                  for (ChatCompletionChunk.Choice c : chunk.choices()) {
+                    c.delta()
+                        .content()
+                        .ifPresent(
+                            text -> {
+                              contentAccumulator.append(text);
+                              emit(ctx, new AgentEvent.ContentDelta(text), eventConsumer);
+                            });
+                  }
+                });
+      }
+
+      // Check if any chunk indicated tool calls
+      boolean hasToolCalls =
+          allChunks.stream()
+              .flatMap(c -> c.choices().stream())
+              .anyMatch(c -> c.delta().toolCalls().isPresent());
+
+      if (hasToolCalls) {
+        // For tool calls, use non-streaming to get reliable tool_call parsing
+        ChatCompletion completion = client.chat().completions().create(params);
+        completion
+            .usage()
+            .ifPresent(
+                u -> ctx.addTokenUsage(u.promptTokens(), u.completionTokens(), u.totalTokens()));
+        return completion;
+      }
+
+      // Build a minimal ChatCompletion from streamed text content
+      return ChatCompletion.builder()
+          .id("streamed")
+          .model(modelName)
+          .addChoice(
+              ChatCompletion.Choice.builder()
+                  .index(0L)
+                  .message(
+                      ChatCompletionMessage.builder()
+                          .content(contentAccumulator.toString())
+                          .build())
+                  .finishReason(ChatCompletion.Choice.FinishReason.STOP)
+                  .build())
+          .build();
+
+    } catch (Exception e) {
+      LOG.error("LLM streaming error", e);
+      emit(ctx, new AgentEvent.AgentError("LLM error: " + e.getMessage()), eventConsumer);
       return null;
     }
-
-    if (errorHolder[0] != null) {
-      LOG.error("LLM streaming error", errorHolder[0]);
-      emit(
-          ctx,
-          new AgentEvent.AgentError("LLM error: " + errorHolder[0].getMessage()),
-          eventConsumer);
-      return null;
-    }
-
-    return responseHolder[0] != null ? responseHolder[0].aiMessage() : null;
   }
 
   private String executeTool(String toolName, Map<String, Object> toolArgs) {
@@ -258,6 +296,20 @@ public class ReactAgent {
     }
   }
 
+  private static Map<String, Object> parseToolArgs(String json) {
+    if (json == null || json.isEmpty()) {
+      return new HashMap<>();
+    }
+    try {
+      return JSON.readValue(json, new TypeReference<Map<String, Object>>() {});
+    } catch (Exception e) {
+      LOG.warn("Failed to parse tool arguments: {}", json, e);
+      Map<String, Object> fallback = new HashMap<>();
+      fallback.put("raw", json);
+      return fallback;
+    }
+  }
+
   // --- Middleware dispatch methods ---
 
   private void emit(AgentContext ctx, AgentEvent event, Consumer<AgentEvent> consumer) {
@@ -265,7 +317,7 @@ public class ReactAgent {
     for (AgentMiddleware mw : middlewares) {
       try {
         filtered = mw.onEvent(ctx, filtered);
-        if (filtered == null) return; // Event suppressed
+        if (filtered == null) return;
       } catch (Exception e) {
         LOG.warn("Middleware onEvent error: {}", e.getMessage());
       }
@@ -284,7 +336,6 @@ public class ReactAgent {
   }
 
   private void dispatchAgentFinish(AgentContext ctx) {
-    // Reverse order for cleanup
     for (int i = middlewares.size() - 1; i >= 0; i--) {
       try {
         middlewares.get(i).onAgentFinish(ctx);
@@ -294,8 +345,8 @@ public class ReactAgent {
     }
   }
 
-  /** Returns true if any middleware requested skipping the LLM call. */
-  private boolean dispatchBeforeLlmCall(AgentContext ctx, List<ChatMessage> messages) {
+  private boolean dispatchBeforeLlmCall(
+      AgentContext ctx, List<ChatCompletionMessageParam> messages) {
     for (AgentMiddleware mw : middlewares) {
       try {
         AgentMiddleware.LlmRequestDecision decision = mw.beforeLlmCall(ctx, messages);
@@ -310,7 +361,8 @@ public class ReactAgent {
     return false;
   }
 
-  private void dispatchAfterLlmCall(AgentContext ctx, AiMessage response) {
+  private void dispatchAfterLlmCall(
+      AgentContext ctx, ChatCompletionAssistantMessageParam response) {
     for (int i = middlewares.size() - 1; i >= 0; i--) {
       try {
         middlewares.get(i).afterLlmCall(ctx, response);
@@ -333,7 +385,6 @@ public class ReactAgent {
     return null;
   }
 
-  /** Returns modified result or null if no middleware modified it. */
   private String dispatchAfterToolCall(
       AgentContext ctx, String toolName, Map<String, Object> toolArgs, String result) {
     String modified = null;
@@ -360,14 +411,20 @@ public class ReactAgent {
   }
 
   public static class Builder {
-    private StreamingChatLanguageModel model;
+    private OpenAIClient client;
+    private String modelName;
     private ToolRegistry toolRegistry = new ToolRegistry();
     private final List<AgentMiddleware> middlewares = new ArrayList<>();
     private int maxIterations = 20;
     private String systemPrompt;
 
-    public Builder model(StreamingChatLanguageModel model) {
-      this.model = model;
+    public Builder client(OpenAIClient client) {
+      this.client = client;
+      return this;
+    }
+
+    public Builder modelName(String modelName) {
+      this.modelName = modelName;
       return this;
     }
 
@@ -392,8 +449,10 @@ public class ReactAgent {
     }
 
     public ReactAgent build() {
-      if (model == null) throw new IllegalStateException("model is required");
-      return new ReactAgent(model, toolRegistry, middlewares, maxIterations, systemPrompt);
+      if (client == null) throw new IllegalStateException("client is required");
+      if (modelName == null) throw new IllegalStateException("modelName is required");
+      return new ReactAgent(
+          client, modelName, toolRegistry, middlewares, maxIterations, systemPrompt);
     }
   }
 }

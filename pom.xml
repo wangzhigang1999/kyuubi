@@ -188,7 +188,7 @@
         <mockito.version>4.11.0</mockito.version>
         <netty.version>4.2.7.Final</netty.version>
         <openai.java.version>0.12.0</openai.java.version>
-        <langchain4j.version>1.0.0-beta3</langchain4j.version>
+        <openai.sdk.version>4.30.0</openai.sdk.version>
         <retrofit.version>2.9.0</retrofit.version>
         <paimon.version>0.8.2</paimon.version>
         <paimon.artifact>paimon-spark-${spark.binary.version}</paimon.artifact>

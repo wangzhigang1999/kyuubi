@@ -30,13 +30,6 @@
     <name>Kyuubi Project Engine Data Agent</name>
     <url>https://kyuubi.apache.org/</url>
 
-    <properties>
-        <enforcer.maxJdkVersion>17</enforcer.maxJdkVersion>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
-        <maven.compiler.release>17</maven.compiler.release>
-    </properties>
-
     <dependencies>
         <!-- kyuubi dependency -->
         <dependency>
@@ -51,17 +44,18 @@
             <version>${project.version}</version>
         </dependency>
 
-        <!-- LLM integration -->
+        <!-- OpenAI official Java SDK -->
         <dependency>
-            <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j</artifactId>
-            <version>${langchain4j.version}</version>
+            <groupId>com.openai</groupId>
+            <artifactId>openai-java</artifactId>
+            <version>${openai.sdk.version}</version>
         </dependency>
 
+        <!-- SQLite JDBC for data source connectivity -->
         <dependency>
-            <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-open-ai</artifactId>
-            <version>${langchain4j.version}</version>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>${sqlite.version}</version>
         </dependency>
 
         <!-- test dependencies -->

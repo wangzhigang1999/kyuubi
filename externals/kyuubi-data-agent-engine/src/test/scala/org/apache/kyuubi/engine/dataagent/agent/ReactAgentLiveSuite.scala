@@ -21,14 +21,14 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 import scala.collection.JavaConverters._
 
-import dev.langchain4j.model.openai.OpenAiStreamingChatModel
+import com.openai.client.okhttp.OpenAIOkHttpClient
 
 import org.apache.kyuubi.KyuubiFunSuite
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry
 
 /**
  * Live integration test with a real LLM (Qwen via DashScope).
- * Requires TEAM_API_AK_API environment variable.
+ * Requires DASHSCOPE_API_KEY environment variable.
  */
 class ReactAgentLiveSuite extends KyuubiFunSuite {
 
@@ -42,18 +42,17 @@ class ReactAgentLiveSuite extends KyuubiFunSuite {
   }
 
   test("live streaming with Qwen model - token-by-token") {
-    val model = OpenAiStreamingChatModel.builder()
+    val client = OpenAIOkHttpClient.builder()
       .apiKey(apiKey)
       .baseUrl(baseUrl)
-      .modelName(modelName)
       .build()
 
     val agent = ReactAgent.builder()
-      .model(model)
+      .client(client)
+      .modelName(modelName)
       .toolRegistry(new ToolRegistry())
       .maxIterations(3)
-      .systemPrompt(
-        "You are a data analysis agent. Answer concisely in 1-2 sentences.")
+      .systemPrompt("You are a data analysis agent. Answer concisely in 1-2 sentences.")
       .build()
 
     val events = new CopyOnWriteArrayList[AgentEvent]()
@@ -67,7 +66,6 @@ class ReactAgentLiveSuite extends KyuubiFunSuite {
 
     val eventList = events.asScala.toList
 
-    // Print event stream for visual inspection
     // scalastyle:off println
     println("=== Event Stream ===")
     var deltaCount = 0
@@ -78,7 +76,7 @@ class ReactAgentLiveSuite extends KyuubiFunSuite {
       case d: AgentEvent.ContentDelta =>
         deltaCount += 1
         fullText.append(d.text())
-        print(d.text()) // real-time token streaming to console
+        print(d.text())
       case c: AgentEvent.ContentComplete =>
         println(s"\n[Complete] ${c.fullText().take(100)}...")
       case f: AgentEvent.AgentFinish =>
