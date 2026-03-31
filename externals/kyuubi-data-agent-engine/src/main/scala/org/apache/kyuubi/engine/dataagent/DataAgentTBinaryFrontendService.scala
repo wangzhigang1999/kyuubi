@@ -14,14 +14,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.apache.kyuubi.engine.dataagent
 
-package org.apache.kyuubi.engine
+import org.apache.kyuubi.ha.client.{EngineServiceDiscovery, ServiceDiscovery}
+import org.apache.kyuubi.service.{Serverable, Service, TBinaryFrontendService}
 
-/**
- * Defines different engine types supported by Kyuubi.
- */
-object EngineType extends Enumeration {
-  type EngineType = Value
+class DataAgentTBinaryFrontendService(override val serverable: Serverable)
+  extends TBinaryFrontendService("DataAgentTBinaryFrontend") {
 
-  val SPARK_SQL, FLINK_SQL, CHAT, TRINO, HIVE_SQL, JDBC, DATA_AGENT = Value
+  override lazy val discoveryService: Option[Service] =
+    if (ServiceDiscovery.supportServiceDiscovery(conf)) {
+      Some(new EngineServiceDiscovery(this))
+    } else {
+      None
+    }
 }

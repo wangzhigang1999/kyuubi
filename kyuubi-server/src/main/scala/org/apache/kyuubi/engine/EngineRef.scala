@@ -33,6 +33,7 @@ import org.apache.kyuubi.config.KyuubiReservedKeys.KYUUBI_ENGINE_SUBMIT_TIME_KEY
 import org.apache.kyuubi.engine.EngineType._
 import org.apache.kyuubi.engine.ShareLevel.{CONNECTION, GROUP, SERVER, SERVER_LOCAL, ShareLevel}
 import org.apache.kyuubi.engine.chat.ChatProcessBuilder
+import org.apache.kyuubi.engine.dataagent.DataAgentProcessBuilder
 import org.apache.kyuubi.engine.flink.FlinkProcessBuilder
 import org.apache.kyuubi.engine.hive.HiveProcessBuilder
 import org.apache.kyuubi.engine.jdbc.JdbcProcessBuilder
@@ -242,6 +243,8 @@ private[kyuubi] class EngineRef(
           defaultEngineName)
       case CHAT =>
         new ChatProcessBuilder(appUser, doAsEnabled, conf, engineRefId, extraEngineLog)
+      case DATA_AGENT =>
+        new DataAgentProcessBuilder(appUser, doAsEnabled, conf, engineRefId, extraEngineLog)
     }
 
     MetricsSystem.tracing(_.incCount(ENGINE_TOTAL))

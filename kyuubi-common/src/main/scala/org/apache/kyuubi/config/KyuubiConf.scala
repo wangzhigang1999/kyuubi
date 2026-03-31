@@ -3754,6 +3754,74 @@ object KyuubiConf {
       .checkValue(_ >= 0, "must be 0 or positive number")
       .createWithDefault(Duration.ofSeconds(120).toMillis)
 
+  val ENGINE_DATA_AGENT_MEMORY: ConfigEntry[String] =
+    buildConf("kyuubi.engine.data.agent.memory")
+      .doc("The heap memory for the Data Agent engine")
+      .version("1.11.0")
+      .stringConf
+      .createWithDefault("1g")
+
+  val ENGINE_DATA_AGENT_JAVA_OPTIONS: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.data.agent.java.options")
+      .doc("The extra Java options for the Data Agent engine")
+      .version("1.11.0")
+      .stringConf
+      .createOptional
+
+  val ENGINE_DATA_AGENT_EXTRA_CLASSPATH: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.data.agent.extra.classpath")
+      .doc("The extra classpath for the Data Agent engine, for configuring the location " +
+        "of the LLM SDK and etc.")
+      .version("1.11.0")
+      .stringConf
+      .createOptional
+
+  val ENGINE_DATA_AGENT_PROVIDER: ConfigEntry[String] =
+    buildConf("kyuubi.engine.data.agent.provider")
+      .doc("The provider for the Data Agent engine. Candidates: <ul>" +
+        " <li>ECHO: simply echoes the input, for testing purpose.</li>" +
+        " <li>GPT: OpenAI-compatible LLM provider.</li>" +
+        "</ul>")
+      .version("1.11.0")
+      .stringConf
+      .transform {
+        case "ECHO" | "echo" =>
+          "org.apache.kyuubi.engine.dataagent.provider.EchoProvider"
+        case "GPT" | "gpt" | "OpenAI" | "openai" =>
+          "org.apache.kyuubi.engine.dataagent.provider.OpenAiProvider"
+        case other => other
+      }
+      .createWithDefault("ECHO")
+
+  val ENGINE_DATA_AGENT_LLM_API_KEY: OptionalConfigEntry[String] =
+    buildConf("kyuubi.engine.data.agent.llm.api.key")
+      .doc("The API key to access the LLM service for the Data Agent engine.")
+      .version("1.11.0")
+      .stringConf
+      .createOptional
+
+  val ENGINE_DATA_AGENT_LLM_MODEL: ConfigEntry[String] =
+    buildConf("kyuubi.engine.data.agent.llm.model")
+      .doc("The model ID used by the Data Agent engine LLM provider.")
+      .version("1.11.0")
+      .stringConf
+      .createWithDefault("gpt-4")
+
+  val ENGINE_DATA_AGENT_LLM_API_URL: ConfigEntry[String] =
+    buildConf("kyuubi.engine.data.agent.llm.api.url")
+      .doc("The API base URL for the LLM service used by the Data Agent engine.")
+      .version("1.11.0")
+      .stringConf
+      .createWithDefault("https://api.openai.com/v1")
+
+  val ENGINE_DATA_AGENT_MAX_ITERATIONS: ConfigEntry[Int] =
+    buildConf("kyuubi.engine.data.agent.max.iterations")
+      .doc("The maximum number of ReAct loop iterations for the Data Agent engine.")
+      .version("1.11.0")
+      .intConf
+      .checkValue(_ > 0, "must be positive number")
+      .createWithDefault(20)
+
   val ENGINE_JDBC_MEMORY: ConfigEntry[String] =
     buildConf("kyuubi.engine.jdbc.memory")
       .doc("The heap memory for the JDBC query engine")
