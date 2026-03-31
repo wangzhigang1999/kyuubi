@@ -17,19 +17,22 @@
 
 package org.apache.kyuubi.engine.dataagent.tool;
 
-import java.util.Map;
-
 /**
  * Base interface for tools that the Data Agent can invoke during its ReAct loop. Each tool
  * represents a capability like schema inspection, SQL execution, or glossary lookup.
+ *
+ * @param <T> the strongly typed arguments class for this tool
  */
-public interface AgentTool {
+public interface AgentTool<T> {
 
   /** Unique name for this tool, used by the LLM to select it. */
   String name();
 
   /** Description shown to the LLM to help it decide when to use this tool. */
   String description();
+
+  /** Returns the class of the arguments type for JSON deserialization and schema generation. */
+  Class<T> argsType();
 
   /**
    * Whether this tool is read-only (no side effects). Read-only tools are auto-approved in NORMAL
@@ -40,10 +43,10 @@ public interface AgentTool {
   }
 
   /**
-   * Execute the tool with the given arguments.
+   * Execute the tool with the given strongly typed arguments.
    *
-   * @param args the arguments parsed from the LLM's tool call
+   * @param args the deserialized arguments from the LLM's tool call
    * @return the result string to feed back to the LLM
    */
-  String execute(Map<String, Object> args);
+  String execute(T args);
 }

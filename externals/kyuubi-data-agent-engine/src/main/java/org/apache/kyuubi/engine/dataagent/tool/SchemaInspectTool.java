@@ -21,7 +21,6 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.Statement;
-import java.util.Map;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +29,7 @@ import org.slf4j.LoggerFactory;
  * Tool for inspecting database schema. Lists tables when no table_name is given, or describes
  * columns and sample data for a specific table.
  */
-public class SchemaInspectTool implements AgentTool {
+public class SchemaInspectTool implements AgentTool<SchemaInspectArgs> {
 
   private static final Logger LOG = LoggerFactory.getLogger(SchemaInspectTool.class);
   private final DataSource dataSource;
@@ -53,8 +52,13 @@ public class SchemaInspectTool implements AgentTool {
   }
 
   @Override
-  public String execute(Map<String, Object> args) {
-    String tableName = args.get("table_name") != null ? args.get("table_name").toString() : "";
+  public Class<SchemaInspectArgs> argsType() {
+    return SchemaInspectArgs.class;
+  }
+
+  @Override
+  public String execute(SchemaInspectArgs args) {
+    String tableName = args.tableName != null ? args.tableName : "";
     try (Connection conn = dataSource.getConnection()) {
       if (tableName.isEmpty()) {
         return listTables(conn);

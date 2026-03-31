@@ -25,7 +25,6 @@ import com.openai.models.chat.completions.ChatCompletion;
 import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam;
 import com.openai.models.chat.completions.ChatCompletionChunk;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
-import com.openai.models.chat.completions.ChatCompletionMessage;
 import com.openai.models.chat.completions.ChatCompletionMessageFunctionToolCall;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
 import com.openai.models.chat.completions.ChatCompletionMessageToolCall;
@@ -109,26 +108,35 @@ public class ReactAgent {
         }
 
         // 3. Stream LLM response with token-level events
-        ChatCompletion completion = streamLlmResponse(ctx, messages, eventConsumer);
-        if (completion == null) {
-          emit(ctx, new AgentEvent.AgentError("LLM returned null response"), eventConsumer);
+        StringBuilder contentAccumulator = new StringBuilder();
+        ChatCompletion completion =
+            streamLlmResponse(ctx, messages, eventConsumer, contentAccumulator);
+        if (completion == null && contentAccumulator.length() == 0) {
+          emit(ctx, new AgentEvent.AgentError("LLM returned empty response"), eventConsumer);
           break;
         }
 
-        ChatCompletion.Choice choice = completion.choices().get(0);
-        String content = choice.message().content().orElse("");
+        // 4. Extract content and tool calls
+        String content;
+        List<ChatCompletionMessageToolCall> toolCalls;
+        if (completion != null) {
+          ChatCompletion.Choice choice = completion.choices().get(0);
+          content = choice.message().content().orElse("");
+          toolCalls = choice.message().toolCalls().orElse(null);
+        } else {
+          content = contentAccumulator.toString();
+          toolCalls = null;
+        }
 
-        // 4. Emit ContentComplete
+        // 5. Emit ContentComplete
         emit(ctx, new AgentEvent.ContentComplete(content), eventConsumer);
 
-        // 5. Build assistant message and add to memory
+        // 6. Build assistant message and add to memory
         ChatCompletionAssistantMessageParam.Builder assistantBuilder =
             ChatCompletionAssistantMessageParam.builder();
         if (!content.isEmpty()) {
           assistantBuilder.content(content);
         }
-
-        List<ChatCompletionMessageToolCall> toolCalls = choice.message().toolCalls().orElse(null);
         if (toolCalls != null && !toolCalls.isEmpty()) {
           assistantBuilder.toolCalls(toolCalls);
         }
@@ -136,10 +144,10 @@ public class ReactAgent {
         ChatCompletionAssistantMessageParam assistantMsg = assistantBuilder.build();
         memory.addAssistantMessage(assistantMsg);
 
-        // 6. Dispatch after_llm_call middleware
+        // 7. Dispatch after_llm_call middleware
         dispatchAfterLlmCall(ctx, assistantMsg);
 
-        // 7. Check for tool calls
+        // 8. Check for tool calls
         if (toolCalls != null && !toolCalls.isEmpty()) {
           for (ChatCompletionMessageToolCall toolCall : toolCalls) {
             ChatCompletionMessageFunctionToolCall fnCall = toolCall.asFunction();
@@ -159,8 +167,8 @@ public class ReactAgent {
             // Emit ToolCall event
             emit(ctx, new AgentEvent.ToolCall(toolName, toolArgs), eventConsumer);
 
-            // Execute tool
-            String result = executeTool(toolName, toolArgs);
+            // Execute tool with typed args via SDK deserialization
+            String result = executeTool(toolName, fnCall.function());
 
             // Dispatch after_tool_call
             String modifiedResult = dispatchAfterToolCall(ctx, toolName, toolArgs, result);
@@ -175,7 +183,7 @@ public class ReactAgent {
           continue;
         }
 
-        // 8. No tool calls — agent finished
+        // 9. No tool calls — agent finished
         emit(
             ctx,
             new AgentEvent.AgentFinish(
@@ -196,13 +204,15 @@ public class ReactAgent {
   }
 
   /**
-   * Stream LLM response via OpenAI SDK, emitting ContentDelta for each chunk. Returns the
-   * accumulated ChatCompletion.
+   * Stream LLM response via OpenAI SDK, emitting ContentDelta for each chunk. Appends streamed text
+   * to contentAccumulator. Returns a ChatCompletion only when tool calls are detected (via a
+   * non-streaming fallback call); returns null for text-only responses.
    */
   private ChatCompletion streamLlmResponse(
       AgentContext ctx,
       List<ChatCompletionMessageParam> messages,
-      Consumer<AgentEvent> eventConsumer) {
+      Consumer<AgentEvent> eventConsumer,
+      StringBuilder contentAccumulator) {
 
     try {
       ChatCompletionCreateParams.Builder paramsBuilder =
@@ -223,7 +233,6 @@ public class ReactAgent {
       ChatCompletionCreateParams params = paramsBuilder.build();
 
       // Stream and accumulate
-      StringBuilder contentAccumulator = new StringBuilder();
       List<ChatCompletionChunk> allChunks = new ArrayList<>();
 
       try (StreamResponse<ChatCompletionChunk> stream =
@@ -261,20 +270,8 @@ public class ReactAgent {
         return completion;
       }
 
-      // Build a minimal ChatCompletion from streamed text content
-      return ChatCompletion.builder()
-          .id("streamed")
-          .model(modelName)
-          .addChoice(
-              ChatCompletion.Choice.builder()
-                  .index(0L)
-                  .message(
-                      ChatCompletionMessage.builder()
-                          .content(contentAccumulator.toString())
-                          .build())
-                  .finishReason(ChatCompletion.Choice.FinishReason.STOP)
-                  .build())
-          .build();
+      // Text-only response — content already in contentAccumulator
+      return null;
 
     } catch (Exception e) {
       LOG.error("LLM streaming error", e);
@@ -283,13 +280,16 @@ public class ReactAgent {
     }
   }
 
-  private String executeTool(String toolName, Map<String, Object> toolArgs) {
-    AgentTool tool = toolRegistry.get(toolName);
+  @SuppressWarnings("unchecked")
+  private String executeTool(
+      String toolName, ChatCompletionMessageFunctionToolCall.Function function) {
+    AgentTool<?> tool = toolRegistry.get(toolName);
     if (tool == null) {
       return "Error: unknown tool '" + toolName + "'";
     }
     try {
-      return tool.execute(toolArgs);
+      Object typedArgs = function.arguments(tool.argsType());
+      return ((AgentTool<Object>) tool).execute(typedArgs);
     } catch (Exception e) {
       LOG.error("Tool execution error: {}", toolName, e);
       return "Error executing " + toolName + ": " + e.getMessage();

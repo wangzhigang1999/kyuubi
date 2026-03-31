@@ -21,16 +21,14 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.Statement;
-import java.util.Map;
 import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Tool for executing SQL SELECT queries against the database. Only SELECT is allowed. */
-public class SqlQueryTool implements AgentTool {
+public class SqlQueryTool implements AgentTool<SqlQueryArgs> {
 
   private static final Logger LOG = LoggerFactory.getLogger(SqlQueryTool.class);
-  private static final int DEFAULT_MAX_ROWS = 100;
   private final DataSource dataSource;
 
   public SqlQueryTool(DataSource dataSource) {
@@ -51,8 +49,13 @@ public class SqlQueryTool implements AgentTool {
   }
 
   @Override
-  public String execute(Map<String, Object> args) {
-    String sql = args.get("sql") != null ? args.get("sql").toString().trim() : "";
+  public Class<SqlQueryArgs> argsType() {
+    return SqlQueryArgs.class;
+  }
+
+  @Override
+  public String execute(SqlQueryArgs args) {
+    String sql = args.sql != null ? args.sql.trim() : "";
     if (sql.isEmpty()) {
       return "Error: 'sql' parameter is required.";
     }
@@ -67,9 +70,11 @@ public class SqlQueryTool implements AgentTool {
           + sql.substring(0, Math.min(50, sql.length()));
     }
 
+    int maxRows = args.maxRows > 0 ? args.maxRows : 100;
+
     try (Connection conn = dataSource.getConnection();
         Statement stmt = conn.createStatement()) {
-      stmt.setMaxRows(DEFAULT_MAX_ROWS);
+      stmt.setMaxRows(maxRows);
       ResultSet rs = stmt.executeQuery(sql);
       return formatResult(rs);
     } catch (Exception e) {

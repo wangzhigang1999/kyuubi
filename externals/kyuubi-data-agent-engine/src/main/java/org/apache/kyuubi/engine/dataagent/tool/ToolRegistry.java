@@ -31,28 +31,29 @@ import org.apache.kyuubi.engine.dataagent.agent.ApprovalMode;
 
 /**
  * Registry for agent tools. Provides lookup, approval checking, and OpenAI tool spec generation.
+ * Uses {@link ToolSchemaGenerator} to auto-generate JSON Schema from tool args types.
  */
 public class ToolRegistry {
 
-  private final Map<String, AgentTool> tools = new LinkedHashMap<>();
+  private final Map<String, AgentTool<?>> tools = new LinkedHashMap<>();
 
-  public ToolRegistry register(AgentTool tool) {
+  public ToolRegistry register(AgentTool<?> tool) {
     tools.put(tool.name(), tool);
     return this;
   }
 
-  public AgentTool get(String name) {
+  public AgentTool<?> get(String name) {
     return tools.get(name);
   }
 
-  public List<AgentTool> listTools() {
+  public List<AgentTool<?>> listTools() {
     return Collections.unmodifiableList(new ArrayList<>(tools.values()));
   }
 
   /** Returns OpenAI ChatCompletionTool specs for the LLM request. */
   public List<ChatCompletionTool> toChatCompletionTools() {
     List<ChatCompletionTool> result = new ArrayList<>();
-    for (AgentTool tool : tools.values()) {
+    for (AgentTool<?> tool : tools.values()) {
       result.add(toChatCompletionTool(tool));
     }
     return result;
@@ -65,35 +66,18 @@ public class ToolRegistry {
   public boolean requiresApproval(String toolName, ApprovalMode mode) {
     if (mode == ApprovalMode.YOLO) return false;
     if (mode == ApprovalMode.STRICT) return true;
-    AgentTool tool = tools.get(toolName);
+    AgentTool<?> tool = tools.get(toolName);
     if (tool == null) return true;
     return !tool.isReadonly();
   }
 
-  private static ChatCompletionTool toChatCompletionTool(AgentTool tool) {
-    // Build JSON Schema for function parameters using JsonValue
-    Map<String, JsonValue> properties = new LinkedHashMap<>();
-    List<JsonValue> required = new ArrayList<>();
+  private static ChatCompletionTool toChatCompletionTool(AgentTool<?> tool) {
+    Map<String, Object> schema = ToolSchemaGenerator.generateSchema(tool.argsType());
 
-    if ("describe_schema".equals(tool.name())) {
-      Map<String, Object> tableNameSchema = new LinkedHashMap<>();
-      tableNameSchema.put("type", "string");
-      tableNameSchema.put("description", "Table name to describe. Empty to list all tables.");
-      properties.put("table_name", JsonValue.from(tableNameSchema));
-    } else if ("sql_query".equals(tool.name())) {
-      Map<String, Object> sqlSchema = new LinkedHashMap<>();
-      sqlSchema.put("type", "string");
-      sqlSchema.put("description", "A valid SQL SELECT query.");
-      properties.put("sql", JsonValue.from(sqlSchema));
-      required.add(JsonValue.from("sql"));
+    FunctionParameters.Builder paramsBuilder = FunctionParameters.builder();
+    for (Map.Entry<String, Object> entry : schema.entrySet()) {
+      paramsBuilder.putAdditionalProperty(entry.getKey(), JsonValue.from(entry.getValue()));
     }
-
-    FunctionParameters params =
-        FunctionParameters.builder()
-            .putAdditionalProperty("type", JsonValue.from("object"))
-            .putAdditionalProperty("properties", JsonValue.from(properties))
-            .putAdditionalProperty("required", JsonValue.from(required))
-            .build();
 
     return ChatCompletionTool.ofFunction(
         ChatCompletionFunctionTool.builder()
@@ -101,7 +85,7 @@ public class ToolRegistry {
                 FunctionDefinition.builder()
                     .name(tool.name())
                     .description(tool.description())
-                    .parameters(params)
+                    .parameters(paramsBuilder.build())
                     .build())
             .build());
   }
