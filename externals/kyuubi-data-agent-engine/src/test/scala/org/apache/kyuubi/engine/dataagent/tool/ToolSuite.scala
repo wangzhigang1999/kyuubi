@@ -23,6 +23,8 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import org.sqlite.SQLiteDataSource
 
 import org.apache.kyuubi.KyuubiFunSuite
+import org.apache.kyuubi.engine.dataagent.tool.schema.{SchemaInspectArgs, SchemaInspectTool}
+import org.apache.kyuubi.engine.dataagent.tool.sql.{SqlQueryArgs, SqlQueryTool}
 
 class ToolSuite extends KyuubiFunSuite {
 

@@ -17,7 +17,6 @@
 
 package org.apache.kyuubi.engine.dataagent.provider;
 
-import java.util.Optional;
 import java.util.function.Consumer;
 import org.apache.kyuubi.config.KyuubiConf;
 import org.apache.kyuubi.engine.dataagent.agent.AgentEvent;
@@ -30,7 +29,7 @@ import org.apache.kyuubi.util.reflect.DynConstructors;
 public interface DataAgentProvider {
 
   /** Initialize a session for the given user. */
-  void open(String sessionId, Optional<String> user);
+  void open(String sessionId, String user);
 
   /**
    * Run the agent for the given question, emitting events via the consumer. Events include

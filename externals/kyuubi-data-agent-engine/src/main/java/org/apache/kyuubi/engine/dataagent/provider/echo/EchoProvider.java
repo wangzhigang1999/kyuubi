@@ -15,17 +15,17 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.engine.dataagent.provider;
+package org.apache.kyuubi.engine.dataagent.provider.echo;
 
-import java.util.Optional;
 import java.util.function.Consumer;
 import org.apache.kyuubi.engine.dataagent.agent.AgentEvent;
+import org.apache.kyuubi.engine.dataagent.provider.DataAgentProvider;
 
 /** A simple echo provider for testing purposes. Simulates the agent event stream. */
 public class EchoProvider implements DataAgentProvider {
 
   @Override
-  public void open(String sessionId, Optional<String> user) {}
+  public void open(String sessionId, String user) {}
 
   @Override
   public void run(String sessionId, String question, Consumer<AgentEvent> onEvent) {

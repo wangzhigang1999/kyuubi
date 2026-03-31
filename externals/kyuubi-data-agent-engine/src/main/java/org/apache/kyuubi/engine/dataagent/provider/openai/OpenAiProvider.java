@@ -15,11 +15,10 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.engine.dataagent.provider;
+package org.apache.kyuubi.engine.dataagent.provider.openai;
 
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import javax.sql.DataSource;
@@ -27,10 +26,11 @@ import org.apache.kyuubi.config.KyuubiConf;
 import org.apache.kyuubi.engine.dataagent.agent.AgentEvent;
 import org.apache.kyuubi.engine.dataagent.agent.ApprovalMode;
 import org.apache.kyuubi.engine.dataagent.agent.ConversationMemory;
-import org.apache.kyuubi.engine.dataagent.agent.ReactAgent;
-import org.apache.kyuubi.engine.dataagent.tool.SchemaInspectTool;
-import org.apache.kyuubi.engine.dataagent.tool.SqlQueryTool;
+import org.apache.kyuubi.engine.dataagent.agent.react.ReactAgent;
+import org.apache.kyuubi.engine.dataagent.provider.DataAgentProvider;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
+import org.apache.kyuubi.engine.dataagent.tool.schema.SchemaInspectTool;
+import org.apache.kyuubi.engine.dataagent.tool.sql.SqlQueryTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.sqlite.SQLiteDataSource;
@@ -89,9 +89,9 @@ public class OpenAiProvider implements DataAgentProvider {
   }
 
   @Override
-  public void open(String sessionId, Optional<String> user) {
+  public void open(String sessionId, String user) {
     sessions.put(sessionId, new ConversationMemory(maxMessages));
-    LOG.info("Opened Data Agent session {} for user {}", sessionId, user.orElse("unknown"));
+    LOG.info("Opened Data Agent session {} for user {}", sessionId, user);
   }
 
   @Override

@@ -3786,9 +3786,9 @@ object KyuubiConf {
       .stringConf
       .transform {
         case "ECHO" | "echo" =>
-          "org.apache.kyuubi.engine.dataagent.provider.EchoProvider"
+          "org.apache.kyuubi.engine.dataagent.provider.echo.EchoProvider"
         case "GPT" | "gpt" | "OpenAI" | "openai" =>
-          "org.apache.kyuubi.engine.dataagent.provider.OpenAiProvider"
+          "org.apache.kyuubi.engine.dataagent.provider.openai.OpenAiProvider"
         case other => other
       }
       .createWithDefault("ECHO")

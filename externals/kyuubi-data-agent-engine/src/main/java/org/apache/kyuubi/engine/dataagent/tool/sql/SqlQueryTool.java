@@ -15,13 +15,14 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.engine.dataagent.tool;
+package org.apache.kyuubi.engine.dataagent.tool.sql;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.Statement;
 import javax.sql.DataSource;
+import org.apache.kyuubi.engine.dataagent.tool.AgentTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

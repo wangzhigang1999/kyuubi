@@ -15,13 +15,18 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.engine.dataagent.tool;
+package org.apache.kyuubi.engine.dataagent.tool.sql;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 
-/** Parameter schema for {@link SchemaInspectTool}. */
-public class SchemaInspectArgs {
+/** Parameter schema for {@link SqlQueryTool}. */
+public class SqlQueryArgs {
 
-  @JsonPropertyDescription("Table name to describe. Empty or omitted to list all tables.")
-  public String tableName = "";
+  @JsonProperty(required = true)
+  @JsonPropertyDescription("A valid SQL SELECT query. Only SELECT is allowed.")
+  public String sql;
+
+  @JsonPropertyDescription("Maximum number of rows to return (default: 100)")
+  public int maxRows = 100;
 }

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.engine.dataagent.agent;
+package org.apache.kyuubi.engine.dataagent.agent.react;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,6 +34,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import org.apache.kyuubi.engine.dataagent.agent.AgentContext;
+import org.apache.kyuubi.engine.dataagent.agent.AgentEvent;
+import org.apache.kyuubi.engine.dataagent.agent.AgentMiddleware;
+import org.apache.kyuubi.engine.dataagent.agent.ApprovalMode;
+import org.apache.kyuubi.engine.dataagent.agent.ConversationMemory;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

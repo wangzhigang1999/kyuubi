@@ -38,7 +38,7 @@ class DataAgentSessionImpl(
 
   override def open(): Unit = {
     info(s"Starting to open data agent session.")
-    dataAgentProvider.open(handle.identifier.toString, java.util.Optional.of(user))
+    dataAgentProvider.open(handle.identifier.toString, user)
     super.open()
     info(s"The data agent session is started.")
   }
