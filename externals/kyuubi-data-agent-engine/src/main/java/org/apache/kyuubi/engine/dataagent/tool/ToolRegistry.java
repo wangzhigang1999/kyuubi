@@ -40,10 +40,12 @@ public class ToolRegistry {
   private static final ObjectMapper JSON = new ObjectMapper();
 
   private final Map<String, AgentTool<?>> tools = new LinkedHashMap<>();
+  private volatile Map<String, ChatCompletionTool> cachedSpecs;
 
   /** Register a tool. Keyed by {@link AgentTool#name()}. */
   public ToolRegistry register(AgentTool<?> tool) {
     tools.put(tool.name(), tool);
+    cachedSpecs = null; // invalidate cache
     return this;
   }
 
@@ -53,9 +55,21 @@ public class ToolRegistry {
 
   /** Add all tools to the ChatCompletion request builder. */
   public void addToolsTo(ChatCompletionCreateParams.Builder builder) {
-    for (AgentTool<?> tool : tools.values()) {
-      builder.addTool(buildChatCompletionTool(tool));
+    Map<String, ChatCompletionTool> specs = ensureSpecs();
+    for (ChatCompletionTool spec : specs.values()) {
+      builder.addTool(spec);
     }
+  }
+
+  private Map<String, ChatCompletionTool> ensureSpecs() {
+    if (cachedSpecs == null) {
+      Map<String, ChatCompletionTool> specs = new LinkedHashMap<>();
+      for (AgentTool<?> tool : tools.values()) {
+        specs.put(tool.name(), buildChatCompletionTool(tool));
+      }
+      cachedSpecs = specs;
+    }
+    return cachedSpecs;
   }
 
   /**

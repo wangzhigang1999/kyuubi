@@ -17,46 +17,70 @@
 
 package org.apache.kyuubi.engine.dataagent.tool;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.victools.jsonschema.generator.OptionPreset;
-import com.github.victools.jsonschema.generator.SchemaGenerator;
-import com.github.victools.jsonschema.generator.SchemaGeneratorConfig;
-import com.github.victools.jsonschema.generator.SchemaGeneratorConfigBuilder;
-import com.github.victools.jsonschema.generator.SchemaVersion;
-import com.github.victools.jsonschema.module.jackson.JacksonModule;
-import com.github.victools.jsonschema.module.jackson.JacksonOption;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyDescription;
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * Generates JSON Schema from annotated Java classes using Jackson annotations. Used to build the
  * {@code parameters} section of OpenAI function definitions.
- *
- * <p>Backed by <a href="https://github.com/victools/jsonschema-generator">victools
- * jsonschema-generator</a> with its Jackson module, which natively reads {@code @JsonProperty} and
- * {@code @JsonPropertyDescription} annotations.
  */
 public class ToolSchemaGenerator {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
-  private static final SchemaGenerator GENERATOR;
+  /** Generate a JSON Schema (as a Map) from the given args class using Jackson annotations. */
+  public static Map<String, Object> generateSchema(Class<?> argsClass) {
+    Map<String, Object> schema = new LinkedHashMap<>();
+    schema.put("type", "object");
 
-  static {
-    JacksonModule jacksonModule = new JacksonModule(JacksonOption.RESPECT_JSONPROPERTY_REQUIRED);
-    SchemaGeneratorConfig config =
-        new SchemaGeneratorConfigBuilder(SchemaVersion.DRAFT_7, OptionPreset.PLAIN_JSON)
-            .with(jacksonModule)
-            .build();
-    GENERATOR = new SchemaGenerator(config);
+    Map<String, Object> properties = new LinkedHashMap<>();
+    List<String> required = new ArrayList<>();
+
+    for (Field field : argsClass.getFields()) {
+      Map<String, Object> prop = new LinkedHashMap<>();
+      prop.put("type", toJsonType(field.getType()));
+
+      JsonPropertyDescription desc = field.getAnnotation(JsonPropertyDescription.class);
+      if (desc != null) {
+        prop.put("description", desc.value());
+      }
+
+      JsonProperty jsonProp = field.getAnnotation(JsonProperty.class);
+      if (jsonProp != null && jsonProp.required()) {
+        required.add(field.getName());
+      }
+
+      properties.put(field.getName(), prop);
+    }
+
+    schema.put("properties", properties);
+    if (!required.isEmpty()) {
+      schema.put("required", required);
+    }
+
+    return schema;
   }
 
-  /** Generate a JSON Schema (as a Map) from the given args class using Jackson annotations. */
-  @SuppressWarnings("unchecked")
-  public static Map<String, Object> generateSchema(Class<?> argsClass) {
-    JsonNode schemaNode = GENERATOR.generateSchema(argsClass);
-    Map<String, Object> schema = MAPPER.convertValue(schemaNode, Map.class);
-    // Remove $schema key — OpenAI function parameters don't expect it.
-    schema.remove("$schema");
-    return schema;
+  private static String toJsonType(Class<?> type) {
+    if (type == String.class) {
+      return "string";
+    } else if (type == int.class
+        || type == Integer.class
+        || type == long.class
+        || type == Long.class) {
+      return "integer";
+    } else if (type == double.class
+        || type == Double.class
+        || type == float.class
+        || type == Float.class) {
+      return "number";
+    } else if (type == boolean.class || type == Boolean.class) {
+      return "boolean";
+    } else {
+      return "string";
+    }
   }
 }

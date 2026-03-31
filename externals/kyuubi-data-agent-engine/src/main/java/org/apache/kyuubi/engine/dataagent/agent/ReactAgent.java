@@ -21,13 +21,13 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.openai.client.OpenAIClient;
 import com.openai.core.http.StreamResponse;
-import com.openai.models.chat.completions.ChatCompletion;
 import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam;
 import com.openai.models.chat.completions.ChatCompletionChunk;
 import com.openai.models.chat.completions.ChatCompletionCreateParams;
 import com.openai.models.chat.completions.ChatCompletionMessageFunctionToolCall;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
 import com.openai.models.chat.completions.ChatCompletionMessageToolCall;
+import com.openai.models.chat.completions.ChatCompletionStreamOptions;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -106,25 +106,15 @@ public class ReactAgent {
         }
 
         // 3. Stream LLM response with token-level events
-        StringBuilder contentAccumulator = new StringBuilder();
-        ChatCompletion completion =
-            streamLlmResponse(ctx, messages, eventConsumer, contentAccumulator);
-        if (completion == null && contentAccumulator.length() == 0) {
+        StreamResult result = streamLlmResponse(ctx, messages, eventConsumer);
+        if (result == null || result.isEmpty()) {
           emit(ctx, new AgentEvent.AgentError("LLM returned empty response"), eventConsumer);
-          break;
+          return;
         }
 
         // 4. Extract content and tool calls
-        String content;
-        List<ChatCompletionMessageToolCall> toolCalls;
-        if (completion != null) {
-          ChatCompletion.Choice choice = completion.choices().get(0);
-          content = choice.message().content().orElse("");
-          toolCalls = choice.message().toolCalls().orElse(null);
-        } else {
-          content = contentAccumulator.toString();
-          toolCalls = null;
-        }
+        String content = result.content;
+        List<ChatCompletionMessageToolCall> toolCalls = result.toolCalls;
 
         // 5. Emit ContentComplete
         emit(ctx, new AgentEvent.ContentComplete(content), eventConsumer);
@@ -166,17 +156,17 @@ public class ReactAgent {
             emit(ctx, new AgentEvent.ToolCall(toolName, toolArgs), eventConsumer);
 
             // Execute tool with typed args via SDK deserialization
-            String result = executeTool(toolName, fnCall.function());
+            String toolOutput = executeTool(toolName, fnCall.function());
 
             // Dispatch after_tool_call
-            String modifiedResult = dispatchAfterToolCall(ctx, toolName, toolArgs, result);
+            String modifiedResult = dispatchAfterToolCall(ctx, toolName, toolArgs, toolOutput);
             if (modifiedResult != null) {
-              result = modifiedResult;
+              toolOutput = modifiedResult;
             }
 
             // Add tool result to memory and emit event
-            memory.addToolResult(fnCall.id(), result);
-            emit(ctx, new AgentEvent.ToolResult(toolName, result, false), eventConsumer);
+            memory.addToolResult(fnCall.id(), toolOutput);
+            emit(ctx, new AgentEvent.ToolResult(toolName, toolOutput, false), eventConsumer);
           }
           continue;
         }
@@ -201,43 +191,69 @@ public class ReactAgent {
     }
   }
 
+  /** Result of a streaming LLM call, assembled from chunks. */
+  private static class StreamResult {
+    final String content;
+    final List<ChatCompletionMessageToolCall> toolCalls;
+
+    StreamResult(String content, List<ChatCompletionMessageToolCall> toolCalls) {
+      this.content = content;
+      this.toolCalls = toolCalls;
+    }
+
+    boolean hasToolCalls() {
+      return toolCalls != null && !toolCalls.isEmpty();
+    }
+
+    boolean isEmpty() {
+      return (content == null || content.isEmpty()) && !hasToolCalls();
+    }
+  }
+
   /**
-   * Stream LLM response via OpenAI SDK, emitting ContentDelta for each chunk. Appends streamed text
-   * to contentAccumulator. Returns a ChatCompletion only when tool calls are detected (via a
-   * non-streaming fallback call); returns null for text-only responses.
+   * Stream LLM response, emitting ContentDelta for each text chunk. Assembles tool calls directly
+   * from streamed chunks — no non-streaming fallback. Returns null only on error.
    */
-  private ChatCompletion streamLlmResponse(
+  private StreamResult streamLlmResponse(
       AgentContext ctx,
       List<ChatCompletionMessageParam> messages,
-      Consumer<AgentEvent> eventConsumer,
-      StringBuilder contentAccumulator) {
+      Consumer<AgentEvent> eventConsumer) {
 
     try {
       ChatCompletionCreateParams.Builder paramsBuilder =
-          ChatCompletionCreateParams.builder().model(modelName);
+          ChatCompletionCreateParams.builder()
+              .model(modelName)
+              .streamOptions(ChatCompletionStreamOptions.builder().includeUsage(true).build());
 
       for (ChatCompletionMessageParam msg : messages) {
         paramsBuilder.addMessage(msg);
       }
 
-      // Add tool specs via SDK's built-in addTool(Class)
       if (!toolRegistry.isEmpty()) {
         toolRegistry.addToolsTo(paramsBuilder);
       }
 
-      ChatCompletionCreateParams params = paramsBuilder.build();
-
-      // Stream and accumulate
-      List<ChatCompletionChunk> allChunks = new ArrayList<>();
+      StringBuilder contentAccumulator = new StringBuilder();
+      // Tool call accumulators keyed by index
+      Map<Integer, String> toolCallIds = new HashMap<>();
+      Map<Integer, String> toolCallNames = new HashMap<>();
+      Map<Integer, StringBuilder> toolCallArgs = new HashMap<>();
 
       try (StreamResponse<ChatCompletionChunk> stream =
-          client.chat().completions().createStreaming(params)) {
+          client.chat().completions().createStreaming(paramsBuilder.build())) {
         stream.stream()
             .forEach(
                 chunk -> {
-                  allChunks.add(chunk);
-                  // Extract text delta and emit token-level streaming
+                  // Extract usage from the final chunk
+                  chunk
+                      .usage()
+                      .ifPresent(
+                          u ->
+                              ctx.addTokenUsage(
+                                  u.promptTokens(), u.completionTokens(), u.totalTokens()));
+
                   for (ChatCompletionChunk.Choice c : chunk.choices()) {
+                    // Accumulate text content
                     c.delta()
                         .content()
                         .ifPresent(
@@ -245,28 +261,56 @@ public class ReactAgent {
                               contentAccumulator.append(text);
                               emit(ctx, new AgentEvent.ContentDelta(text), eventConsumer);
                             });
+
+                    // Accumulate tool calls from deltas
+                    c.delta()
+                        .toolCalls()
+                        .ifPresent(
+                            tcs -> {
+                              for (ChatCompletionChunk.Choice.Delta.ToolCall tc : tcs) {
+                                int idx = (int) tc.index();
+                                tc.id().ifPresent(id -> toolCallIds.put(idx, id));
+                                tc.function()
+                                    .ifPresent(
+                                        fn -> {
+                                          fn.name().ifPresent(name -> toolCallNames.put(idx, name));
+                                          fn.arguments()
+                                              .ifPresent(
+                                                  args ->
+                                                      toolCallArgs
+                                                          .computeIfAbsent(
+                                                              idx, k -> new StringBuilder())
+                                                          .append(args));
+                                        });
+                              }
+                            });
                   }
                 });
       }
 
-      // Check if any chunk indicated tool calls
-      boolean hasToolCalls =
-          allChunks.stream()
-              .flatMap(c -> c.choices().stream())
-              .anyMatch(c -> c.delta().toolCalls().isPresent());
-
-      if (hasToolCalls) {
-        // For tool calls, use non-streaming to get reliable tool_call parsing
-        ChatCompletion completion = client.chat().completions().create(params);
-        completion
-            .usage()
-            .ifPresent(
-                u -> ctx.addTokenUsage(u.promptTokens(), u.completionTokens(), u.totalTokens()));
-        return completion;
+      // Assemble tool calls from accumulated chunks
+      List<ChatCompletionMessageToolCall> toolCalls = null;
+      if (!toolCallIds.isEmpty()) {
+        toolCalls = new ArrayList<>();
+        for (Map.Entry<Integer, String> entry : toolCallIds.entrySet()) {
+          int idx = entry.getKey();
+          toolCalls.add(
+              ChatCompletionMessageToolCall.ofFunction(
+                  ChatCompletionMessageFunctionToolCall.builder()
+                      .id(entry.getValue())
+                      .function(
+                          ChatCompletionMessageFunctionToolCall.Function.builder()
+                              .name(toolCallNames.getOrDefault(idx, ""))
+                              .arguments(
+                                  toolCallArgs.containsKey(idx)
+                                      ? toolCallArgs.get(idx).toString()
+                                      : "{}")
+                              .build())
+                      .build()));
+        }
       }
 
-      // Text-only response — content already in contentAccumulator
-      return null;
+      return new StreamResult(contentAccumulator.toString(), toolCalls);
 
     } catch (Exception e) {
       LOG.error("LLM streaming error", e);
@@ -399,7 +443,7 @@ public class ReactAgent {
     private String modelName;
     private ToolRegistry toolRegistry = new ToolRegistry();
     private final List<AgentMiddleware> middlewares = new ArrayList<>();
-    private int maxIterations = 20;
+    private int maxIterations = 100;
     private String systemPrompt;
 
     public Builder client(OpenAIClient client) {
