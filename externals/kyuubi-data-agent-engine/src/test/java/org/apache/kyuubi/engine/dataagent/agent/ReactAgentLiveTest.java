@@ -29,7 +29,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
-import org.apache.kyuubi.engine.dataagent.agent.react.ReactAgent;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
 import org.apache.kyuubi.engine.dataagent.tool.schema.SchemaInspectTool;
 import org.apache.kyuubi.engine.dataagent.tool.sql.SqlQueryTool;

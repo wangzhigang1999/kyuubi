@@ -51,6 +51,18 @@
             <version>${openai.sdk.version}</version>
         </dependency>
 
+        <!-- JSON Schema generation from Jackson-annotated classes -->
+        <dependency>
+            <groupId>com.github.victools</groupId>
+            <artifactId>jsonschema-generator</artifactId>
+            <version>${victools.jsonschema.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.victools</groupId>
+            <artifactId>jsonschema-module-jackson</artifactId>
+            <version>${victools.jsonschema.version}</version>
+        </dependency>
+
         <!-- SQLite JDBC for data source connectivity -->
         <dependency>
             <groupId>org.xerial</groupId>

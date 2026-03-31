@@ -26,7 +26,7 @@ import org.apache.kyuubi.config.KyuubiConf;
 import org.apache.kyuubi.engine.dataagent.agent.AgentEvent;
 import org.apache.kyuubi.engine.dataagent.agent.ApprovalMode;
 import org.apache.kyuubi.engine.dataagent.agent.ConversationMemory;
-import org.apache.kyuubi.engine.dataagent.agent.react.ReactAgent;
+import org.apache.kyuubi.engine.dataagent.agent.ReactAgent;
 import org.apache.kyuubi.engine.dataagent.provider.DataAgentProvider;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
 import org.apache.kyuubi.engine.dataagent.tool.schema.SchemaInspectTool;
