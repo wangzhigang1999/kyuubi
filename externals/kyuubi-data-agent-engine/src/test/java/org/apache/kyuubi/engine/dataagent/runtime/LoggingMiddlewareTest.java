@@ -26,6 +26,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.kyuubi.engine.dataagent.runtime.event.*;
+import org.apache.kyuubi.engine.dataagent.runtime.middleware.LoggingMiddleware;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -38,8 +40,7 @@ public class LoggingMiddlewareTest {
   public void setUp() {
     middleware = new LoggingMiddleware();
     ctx =
-        new AgentContext(
-            "What is the total revenue?", new ConversationMemory(100), ApprovalMode.YOLO);
+        new AgentContext("What is the total revenue?", new ConversationMemory(), ApprovalMode.YOLO);
     ctx.setIteration(1);
   }
 
@@ -91,36 +92,35 @@ public class LoggingMiddlewareTest {
 
   @Test
   public void testOnEventPassesThroughAllEventTypes() {
-    AgentEvent step = new AgentEvent.StepStart(1);
+    AgentEvent step = new StepStart(1);
     assertSame(step, middleware.onEvent(ctx, step));
 
-    AgentEvent delta = new AgentEvent.ContentDelta("hello");
+    AgentEvent delta = new ContentDelta("hello");
     assertSame(delta, middleware.onEvent(ctx, delta));
 
-    AgentEvent complete = new AgentEvent.ContentComplete("full text");
+    AgentEvent complete = new ContentComplete("full text");
     assertSame(complete, middleware.onEvent(ctx, complete));
 
-    AgentEvent toolCall = new AgentEvent.ToolCall("sql_query", Collections.emptyMap());
+    AgentEvent toolCall = new ToolCall("sql_query", Collections.emptyMap());
     assertSame(toolCall, middleware.onEvent(ctx, toolCall));
 
-    AgentEvent toolResult = new AgentEvent.ToolResult("sql_query", "result", false);
+    AgentEvent toolResult = new ToolResult("sql_query", "result", false);
     assertSame(toolResult, middleware.onEvent(ctx, toolResult));
 
-    AgentEvent toolError = new AgentEvent.ToolResult("sql_query", "error msg", true);
+    AgentEvent toolError = new ToolResult("sql_query", "error msg", true);
     assertSame(toolError, middleware.onEvent(ctx, toolError));
 
-    AgentEvent error = new AgentEvent.AgentError("something went wrong");
+    AgentEvent error = new AgentError("something went wrong");
     assertSame(error, middleware.onEvent(ctx, error));
 
-    AgentEvent finish = new AgentEvent.AgentFinish(3, 100, 50, 150);
+    AgentEvent finish = new AgentFinish(3, 100, 50, 150);
     assertSame(finish, middleware.onEvent(ctx, finish));
   }
 
   @Test
   public void testLongInputIsTruncated() {
     String longInput = String.join("", Collections.nCopies(500, "x"));
-    AgentContext longCtx =
-        new AgentContext(longInput, new ConversationMemory(100), ApprovalMode.YOLO);
+    AgentContext longCtx = new AgentContext(longInput, new ConversationMemory(), ApprovalMode.YOLO);
     // Should not throw; truncation is internal
     middleware.onAgentStart(longCtx);
   }

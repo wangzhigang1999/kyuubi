@@ -22,6 +22,7 @@ public final class StepStart extends AgentEvent {
   private final int stepNumber;
 
   public StepStart(int stepNumber) {
+    super(EventType.STEP_START);
     this.stepNumber = stepNumber;
   }
 

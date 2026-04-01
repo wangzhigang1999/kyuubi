@@ -19,7 +19,7 @@ package org.apache.kyuubi.engine.dataagent.provider;
 
 import java.util.function.Consumer;
 import org.apache.kyuubi.config.KyuubiConf;
-import org.apache.kyuubi.engine.dataagent.runtime.AgentEvent;
+import org.apache.kyuubi.engine.dataagent.runtime.event.AgentEvent;
 import org.apache.kyuubi.util.reflect.DynConstructors;
 
 /**

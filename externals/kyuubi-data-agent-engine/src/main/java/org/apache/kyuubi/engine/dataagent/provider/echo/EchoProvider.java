@@ -18,8 +18,12 @@
 package org.apache.kyuubi.engine.dataagent.provider.echo;
 
 import java.util.function.Consumer;
-import org.apache.kyuubi.engine.dataagent.runtime.AgentEvent;
 import org.apache.kyuubi.engine.dataagent.provider.DataAgentProvider;
+import org.apache.kyuubi.engine.dataagent.runtime.event.AgentEvent;
+import org.apache.kyuubi.engine.dataagent.runtime.event.AgentFinish;
+import org.apache.kyuubi.engine.dataagent.runtime.event.ContentComplete;
+import org.apache.kyuubi.engine.dataagent.runtime.event.ContentDelta;
+import org.apache.kyuubi.engine.dataagent.runtime.event.StepStart;
 
 /** A simple echo provider for testing purposes. Simulates the agent event stream. */
 public class EchoProvider implements DataAgentProvider {
@@ -29,7 +33,7 @@ public class EchoProvider implements DataAgentProvider {
 
   @Override
   public void run(String sessionId, String question, Consumer<AgentEvent> onEvent) {
-    onEvent.accept(new AgentEvent.StepStart(1));
+    onEvent.accept(new StepStart(1));
 
     // Simulate token-level streaming
     String reply =
@@ -39,11 +43,11 @@ public class EchoProvider implements DataAgentProvider {
             + "This is the Data Agent engine in echo mode. "
             + "Please configure an LLM provider (e.g., GPT) for actual data analysis.";
     for (String token : reply.split("(?<=\\s)")) {
-      onEvent.accept(new AgentEvent.ContentDelta(token));
+      onEvent.accept(new ContentDelta(token));
     }
 
-    onEvent.accept(new AgentEvent.ContentComplete(reply));
-    onEvent.accept(new AgentEvent.AgentFinish(1, 0, 0, 0));
+    onEvent.accept(new ContentComplete(reply));
+    onEvent.accept(new AgentFinish(1, 0, 0, 0));
   }
 
   @Override

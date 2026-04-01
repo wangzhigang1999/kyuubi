@@ -104,15 +104,21 @@ public class LoggingMiddleware implements AgentMiddleware {
 
   @Override
   public AgentEvent onEvent(AgentContext ctx, AgentEvent event) {
-    if (event instanceof StepStart) {
-      LOG.info("[agent] Step {}", ((StepStart) event).stepNumber());
-    } else if (event instanceof AgentError) {
-      LOG.error("[agent] ERROR: {}", ((AgentError) event).message());
-    } else if (event instanceof ToolResult) {
-      ToolResult tr = (ToolResult) event;
-      if (tr.isError()) {
-        LOG.warn("[agent] Tool error: {} -> {}", tr.toolName(), truncate(tr.output()));
-      }
+    switch (event.eventType()) {
+      case STEP_START:
+        LOG.info("[agent] Step {}", ((StepStart) event).stepNumber());
+        break;
+      case ERROR:
+        LOG.error("[agent] ERROR: {}", ((AgentError) event).message());
+        break;
+      case TOOL_RESULT:
+        ToolResult tr = (ToolResult) event;
+        if (tr.isError()) {
+          LOG.warn("[agent] Tool error: {} -> {}", tr.toolName(), truncate(tr.output()));
+        }
+        break;
+      default:
+        break;
     }
     return event;
   }

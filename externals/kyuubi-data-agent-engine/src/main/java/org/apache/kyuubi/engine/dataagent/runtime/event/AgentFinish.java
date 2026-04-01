@@ -25,6 +25,7 @@ public final class AgentFinish extends AgentEvent {
   private final long totalTokens;
 
   public AgentFinish(int totalSteps, long promptTokens, long completionTokens, long totalTokens) {
+    super(EventType.FINISH);
     this.totalSteps = totalSteps;
     this.promptTokens = promptTokens;
     this.completionTokens = completionTokens;
@@ -49,9 +50,14 @@ public final class AgentFinish extends AgentEvent {
 
   @Override
   public String toString() {
-    return "AgentFinish{totalSteps=" + totalSteps
-        + ", promptTokens=" + promptTokens
-        + ", completionTokens=" + completionTokens
-        + ", totalTokens=" + totalTokens + "}";
+    return "AgentFinish{totalSteps="
+        + totalSteps
+        + ", promptTokens="
+        + promptTokens
+        + ", completionTokens="
+        + completionTokens
+        + ", totalTokens="
+        + totalTokens
+        + "}";
   }
 }

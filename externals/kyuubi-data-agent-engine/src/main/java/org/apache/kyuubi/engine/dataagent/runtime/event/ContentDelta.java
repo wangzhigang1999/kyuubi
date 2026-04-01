@@ -22,6 +22,7 @@ public final class ContentDelta extends AgentEvent {
   private final String text;
 
   public ContentDelta(String text) {
+    super(EventType.CONTENT_DELTA);
     this.text = text;
   }
 

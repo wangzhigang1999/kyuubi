@@ -22,6 +22,10 @@ import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 /** Parameter schema for {@link SchemaInspectTool}. */
 public class SchemaInspectArgs {
 
-  @JsonPropertyDescription("Table name to describe. Empty or omitted to list all tables.")
+  @JsonPropertyDescription("Database/schema name. Empty or omitted to list all databases/schemas.")
+  public String database = "";
+
+  @JsonPropertyDescription(
+      "Table name to describe. Empty or omitted to list all tables in the database.")
   public String tableName = "";
 }

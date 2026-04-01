@@ -19,6 +19,11 @@ package org.apache.kyuubi.engine.dataagent.runtime;
 
 import static org.junit.Assert.*;
 
+import org.apache.kyuubi.engine.dataagent.runtime.event.AgentEvent;
+import org.apache.kyuubi.engine.dataagent.runtime.event.ContentDelta;
+import org.apache.kyuubi.engine.dataagent.runtime.event.EventType;
+import org.apache.kyuubi.engine.dataagent.runtime.event.StepStart;
+import org.apache.kyuubi.engine.dataagent.runtime.middleware.AgentMiddleware;
 import org.junit.Test;
 
 public class AgentMiddlewareTest {
@@ -29,32 +34,30 @@ public class AgentMiddlewareTest {
         new AgentMiddleware() {
           @Override
           public AgentEvent onEvent(AgentContext ctx, AgentEvent event) {
-            if (event instanceof AgentEvent.ContentDelta) {
+            if (event.eventType() == EventType.CONTENT_DELTA) {
               return null;
             }
             return event;
           }
         };
 
-    AgentContext ctx = new AgentContext("test", new ConversationMemory(100), ApprovalMode.YOLO);
+    AgentContext ctx = new AgentContext("test", new ConversationMemory(), ApprovalMode.YOLO);
 
-    AgentEvent delta = new AgentEvent.ContentDelta("hello");
+    AgentEvent delta = new ContentDelta("hello");
     assertNull("Middleware should suppress ContentDelta", suppressDelta.onEvent(ctx, delta));
 
-    AgentEvent stepStart = new AgentEvent.StepStart(1);
+    AgentEvent stepStart = new StepStart(1);
     assertNotNull(
         "Middleware should not suppress StepStart", suppressDelta.onEvent(ctx, stepStart));
   }
 
   @Test
   public void testToolCallDecision() {
-    AgentMiddleware.ToolCallDecision allow =
-        new AgentMiddleware.ToolCallDecision(true, null, "allowed");
+    AgentMiddleware.ToolCallDecision allow = new AgentMiddleware.ToolCallDecision(true, "allowed");
     assertTrue(allow.allow());
     assertEquals("allowed", allow.reason());
 
-    AgentMiddleware.ToolCallDecision deny =
-        new AgentMiddleware.ToolCallDecision(false, null, "denied");
+    AgentMiddleware.ToolCallDecision deny = new AgentMiddleware.ToolCallDecision(false, "denied");
     assertFalse(deny.allow());
     assertEquals("denied", deny.reason());
   }

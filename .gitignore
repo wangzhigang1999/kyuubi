@@ -87,6 +87,9 @@ kyuubi-server/gen
 kyuubi-server/src/main/antlr4/org/apache/kyuubi/sql/*.tokens
 kyuubi-server/src/main/antlr4/org/apache/kyuubi/sql/gen/
 
+# Local dev CLI for data-agent-engine
+externals/kyuubi-data-agent-engine/src/main/java/org/apache/kyuubi/engine/dataagent/cli/
+
 # For draw.io
 .$*.bkp
 .$*.dtmp

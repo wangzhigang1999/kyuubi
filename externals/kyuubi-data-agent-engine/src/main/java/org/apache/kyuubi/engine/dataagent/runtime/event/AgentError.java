@@ -22,6 +22,7 @@ public final class AgentError extends AgentEvent {
   private final String message;
 
   public AgentError(String message) {
+    super(EventType.ERROR);
     this.message = message;
   }
 

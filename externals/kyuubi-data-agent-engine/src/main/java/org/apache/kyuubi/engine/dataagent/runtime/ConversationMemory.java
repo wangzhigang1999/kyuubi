@@ -27,21 +27,17 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Manages conversation history for a Data Agent session with smart windowing. Ensures tool result
- * messages are never orphaned from their corresponding AI messages when truncating history.
+ * Manages conversation history for a Data Agent session. Ensures tool result messages are never
+ * orphaned from their corresponding AI messages.
  *
- * <p>This class is thread-safe. All public methods are synchronized.
+ * <p>All public methods are synchronized for thread safety.
  */
 public class ConversationMemory {
 
-  private final int maxMessages;
   private String systemPrompt;
   private final List<ChatCompletionMessageParam> messages = new ArrayList<>();
-  private int persistedCount = 0;
 
-  public ConversationMemory(int maxMessages) {
-    this.maxMessages = maxMessages;
-  }
+  public ConversationMemory() {}
 
   public synchronized void setSystemPrompt(String prompt) {
     this.systemPrompt = prompt;
@@ -67,8 +63,10 @@ public class ConversationMemory {
   }
 
   /**
-   * Returns the message list for LLM invocation: system prompt + windowed history. Uses smart cut
-   * point to avoid orphaning tool result messages from their AI message.
+   * Returns the full message list for LLM invocation: system prompt + all history messages.
+   *
+   * <p>No windowing is applied — callers are responsible for managing context length (e.g. via a
+   * token-based truncation strategy).
    */
   public synchronized List<ChatCompletionMessageParam> getMessages() {
     List<ChatCompletionMessageParam> result = new ArrayList<>();
@@ -77,40 +75,8 @@ public class ConversationMemory {
           ChatCompletionMessageParam.ofSystem(
               ChatCompletionSystemMessageParam.builder().content(systemPrompt).build()));
     }
-
-    if (messages.size() <= maxMessages) {
-      result.addAll(messages);
-      return result;
-    }
-
-    // Window from the end, find a safe cut point (never start with orphaned tool result)
-    int cutIndex = messages.size() - maxMessages;
-    // Skip forward past tool result messages at cut point to avoid orphaning
-    while (cutIndex < messages.size() && messages.get(cutIndex).isTool()) {
-      cutIndex++;
-    }
-
-    // Guard: if we skipped past everything, search backwards for a non-tool message
-    if (cutIndex >= messages.size()) {
-      cutIndex = messages.size() - 1;
-      while (cutIndex > 0 && messages.get(cutIndex).isTool()) {
-        cutIndex--;
-      }
-    }
-
-    result.addAll(messages.subList(cutIndex, messages.size()));
+    result.addAll(messages);
     return result;
-  }
-
-  /** Returns messages added since the last persistence checkpoint. */
-  public synchronized List<ChatCompletionMessageParam> getNewMessagesSincePersisted() {
-    if (persistedCount >= messages.size()) {
-      return Collections.emptyList();
-    }
-    List<ChatCompletionMessageParam> newMessages =
-        new ArrayList<>(messages.subList(persistedCount, messages.size()));
-    persistedCount = messages.size();
-    return newMessages;
   }
 
   public synchronized List<ChatCompletionMessageParam> getRawMessages() {
@@ -119,7 +85,6 @@ public class ConversationMemory {
 
   public synchronized void clear() {
     messages.clear();
-    persistedCount = 0;
   }
 
   public synchronized int size() {

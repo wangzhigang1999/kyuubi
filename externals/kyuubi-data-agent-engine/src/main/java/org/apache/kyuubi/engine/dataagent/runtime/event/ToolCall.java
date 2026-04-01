@@ -25,6 +25,7 @@ public final class ToolCall extends AgentEvent {
   private final Map<String, Object> toolArgs;
 
   public ToolCall(String toolName, Map<String, Object> toolArgs) {
+    super(EventType.TOOL_CALL);
     this.toolName = toolName;
     this.toolArgs = toolArgs;
   }

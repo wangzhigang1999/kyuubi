@@ -22,6 +22,7 @@ public final class ContentComplete extends AgentEvent {
   private final String fullText;
 
   public ContentComplete(String fullText) {
+    super(EventType.CONTENT_COMPLETE);
     this.fullText = fullText;
   }
 

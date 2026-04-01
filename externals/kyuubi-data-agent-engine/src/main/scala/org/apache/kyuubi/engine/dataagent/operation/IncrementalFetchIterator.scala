@@ -16,7 +16,7 @@
  */
 package org.apache.kyuubi.engine.dataagent.operation
 
-import java.util.concurrent.CopyOnWriteArrayList
+import scala.collection.mutable.ArrayBuffer
 
 import org.apache.kyuubi.operation.FetchIterator
 
@@ -24,10 +24,15 @@ import org.apache.kyuubi.operation.FetchIterator
  * A thread-safe [[FetchIterator]] that supports concurrent appending and reading.
  * The producer thread calls [[append]] to add items incrementally while the consumer
  * thread fetches results via the standard FetchIterator interface.
+ *
+ * Uses `ArrayBuffer` with explicit synchronization instead of `CopyOnWriteArrayList`
+ * to avoid O(n) array copies on every append (which accumulates to O(n^2) for
+ * token-level streaming).
  */
 class IncrementalFetchIterator[A] extends FetchIterator[A] {
 
-  private val buffer = new CopyOnWriteArrayList[A]()
+  private val buffer = new ArrayBuffer[A]()
+  private val lock = new AnyRef
 
   @volatile private var fetchStart: Long = 0
   @volatile private var position: Long = 0
@@ -36,16 +41,16 @@ class IncrementalFetchIterator[A] extends FetchIterator[A] {
    * Append an item to the buffer. Thread-safe — can be called from the producer thread
    * while the consumer thread is reading.
    */
-  def append(item: A): Unit = {
-    buffer.add(item)
+  def append(item: A): Unit = lock.synchronized {
+    buffer += item
   }
 
   override def fetchNext(): Unit = {
     fetchStart = position
   }
 
-  override def fetchAbsolute(pos: Long): Unit = {
-    position = (pos max 0) min buffer.size()
+  override def fetchAbsolute(pos: Long): Unit = lock.synchronized {
+    position = (pos max 0) min buffer.size
     fetchStart = position
   }
 
@@ -53,11 +58,13 @@ class IncrementalFetchIterator[A] extends FetchIterator[A] {
 
   override def getPosition: Long = position
 
-  override def hasNext: Boolean = position < buffer.size()
+  override def hasNext: Boolean = lock.synchronized {
+    position < buffer.size
+  }
 
-  override def next(): A = {
+  override def next(): A = lock.synchronized {
     val idx = position.toInt
     position += 1
-    buffer.get(idx)
+    buffer(idx)
   }
 }

@@ -24,6 +24,7 @@ public final class ToolResult extends AgentEvent {
   private final boolean isError;
 
   public ToolResult(String toolName, String output, boolean isError) {
+    super(EventType.TOOL_RESULT);
     this.toolName = toolName;
     this.output = output;
     this.isError = isError;
@@ -43,8 +44,12 @@ public final class ToolResult extends AgentEvent {
 
   @Override
   public String toString() {
-    return "ToolResult{toolName='" + toolName + "', isError=" + isError
-        + ", output='" + (output != null && output.length() > 200
-            ? output.substring(0, 200) + "..." : output) + "'}";
+    return "ToolResult{toolName='"
+        + toolName
+        + "', isError="
+        + isError
+        + ", output='"
+        + (output != null && output.length() > 200 ? output.substring(0, 200) + "..." : output)
+        + "'}";
   }
 }

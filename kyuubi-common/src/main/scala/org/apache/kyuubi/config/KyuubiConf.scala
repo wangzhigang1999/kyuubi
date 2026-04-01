@@ -3825,7 +3825,10 @@ object KyuubiConf {
   val ENGINE_DATA_AGENT_JDBC_URL: OptionalConfigEntry[String] =
     buildConf("kyuubi.engine.data.agent.jdbc.url")
       .doc("The JDBC URL for the Data Agent engine to connect to the target database. " +
-        "In production, this should be replaced by Kyuubi internal engine connection.")
+        "Supports any JDBC-compatible source, e.g. " +
+        "jdbc:hive2://kyuubi:10009/default#kyuubi.engine.type=SPARK_SQL, " +
+        "jdbc:postgresql://host:5432/mydb, jdbc:sqlite:/path/to/db.sqlite. " +
+        "Can be overridden per session via session configs.")
       .version("1.11.0")
       .stringConf
       .createOptional

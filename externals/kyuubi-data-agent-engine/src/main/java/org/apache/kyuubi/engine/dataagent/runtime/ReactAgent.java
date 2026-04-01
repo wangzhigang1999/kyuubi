@@ -34,6 +34,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import org.apache.kyuubi.engine.dataagent.runtime.event.AgentError;
+import org.apache.kyuubi.engine.dataagent.runtime.event.AgentEvent;
+import org.apache.kyuubi.engine.dataagent.runtime.event.AgentFinish;
+import org.apache.kyuubi.engine.dataagent.runtime.event.ContentComplete;
+import org.apache.kyuubi.engine.dataagent.runtime.event.ContentDelta;
+import org.apache.kyuubi.engine.dataagent.runtime.event.StepStart;
+import org.apache.kyuubi.engine.dataagent.runtime.event.ToolCall;
+import org.apache.kyuubi.engine.dataagent.runtime.event.ToolResult;
+import org.apache.kyuubi.engine.dataagent.runtime.middleware.AgentMiddleware;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -95,7 +104,7 @@ public class ReactAgent {
     try {
       for (int step = 1; step <= maxIterations; step++) {
         ctx.setIteration(step);
-        emit(ctx, new AgentEvent.StepStart(step), eventConsumer);
+        emit(ctx, new StepStart(step), eventConsumer);
 
         // 1. Build messages from memory
         List<ChatCompletionMessageParam> messages = memory.getMessages();
@@ -108,7 +117,7 @@ public class ReactAgent {
         // 3. Stream LLM response with token-level events
         StreamResult result = streamLlmResponse(ctx, messages, eventConsumer);
         if (result == null || result.isEmpty()) {
-          emit(ctx, new AgentEvent.AgentError("LLM returned empty response"), eventConsumer);
+          emit(ctx, new AgentError("LLM returned empty response"), eventConsumer);
           return;
         }
 
@@ -116,8 +125,10 @@ public class ReactAgent {
         String content = result.content;
         List<ChatCompletionMessageToolCall> toolCalls = result.toolCalls;
 
-        // 5. Emit ContentComplete
-        emit(ctx, new AgentEvent.ContentComplete(content), eventConsumer);
+        // 5. Emit ContentComplete (skip if content is empty, e.g. tool-call-only responses)
+        if (!content.isEmpty()) {
+          emit(ctx, new ContentComplete(content), eventConsumer);
+        }
 
         // 6. Build assistant message and add to memory
         ChatCompletionAssistantMessageParam.Builder assistantBuilder =
@@ -148,12 +159,12 @@ public class ReactAgent {
             if (decision != null && !decision.allow()) {
               String denied = "Tool call denied: " + decision.reason();
               memory.addToolResult(fnCall.id(), denied);
-              emit(ctx, new AgentEvent.ToolResult(toolName, denied, true), eventConsumer);
+              emit(ctx, new ToolResult(toolName, denied, true), eventConsumer);
               continue;
             }
 
             // Emit ToolCall event
-            emit(ctx, new AgentEvent.ToolCall(toolName, toolArgs), eventConsumer);
+            emit(ctx, new ToolCall(toolName, toolArgs), eventConsumer);
 
             // Execute tool with typed args via SDK deserialization
             String toolOutput = executeTool(toolName, fnCall.function());
@@ -166,7 +177,7 @@ public class ReactAgent {
 
             // Add tool result to memory and emit event
             memory.addToolResult(fnCall.id(), toolOutput);
-            emit(ctx, new AgentEvent.ToolResult(toolName, toolOutput, false), eventConsumer);
+            emit(ctx, new ToolResult(toolName, toolOutput, false), eventConsumer);
           }
           continue;
         }
@@ -174,7 +185,7 @@ public class ReactAgent {
         // 9. No tool calls — agent finished
         emit(
             ctx,
-            new AgentEvent.AgentFinish(
+            new AgentFinish(
                 step, ctx.getPromptTokens(), ctx.getCompletionTokens(), ctx.getTotalTokens()),
             eventConsumer);
         return;
@@ -182,9 +193,7 @@ public class ReactAgent {
 
       // Hit max iterations
       emit(
-          ctx,
-          new AgentEvent.AgentError("Reached maximum iterations (" + maxIterations + ")"),
-          eventConsumer);
+          ctx, new AgentError("Reached maximum iterations (" + maxIterations + ")"), eventConsumer);
 
     } finally {
       dispatchAgentFinish(ctx);
@@ -259,7 +268,7 @@ public class ReactAgent {
                         .ifPresent(
                             text -> {
                               contentAccumulator.append(text);
-                              emit(ctx, new AgentEvent.ContentDelta(text), eventConsumer);
+                              emit(ctx, new ContentDelta(text), eventConsumer);
                             });
 
                     // Accumulate tool calls from deltas
@@ -314,7 +323,7 @@ public class ReactAgent {
 
     } catch (Exception e) {
       LOG.error("LLM streaming error", e);
-      emit(ctx, new AgentEvent.AgentError("LLM error: " + e.getMessage()), eventConsumer);
+      emit(ctx, new AgentError("LLM error: " + e.getMessage()), eventConsumer);
       return null;
     }
   }
@@ -407,7 +416,8 @@ public class ReactAgent {
         AgentMiddleware.ToolCallDecision decision = mw.beforeToolCall(ctx, toolName, toolArgs);
         if (decision != null) return decision;
       } catch (Exception e) {
-        LOG.warn("Middleware beforeToolCall error: {}", e.getMessage());
+        LOG.error("Middleware beforeToolCall error, denying tool call as safe default", e);
+        return new AgentMiddleware.ToolCallDecision(false, "Middleware error: " + e.getMessage());
       }
     }
     return null;

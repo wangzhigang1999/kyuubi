@@ -17,9 +17,6 @@
 
 package org.apache.kyuubi.engine.dataagent.runtime;
 
-import java.util.HashMap;
-import java.util.Map;
-
 /**
  * Mutable context passed through the middleware pipeline and agent loop. Tracks the current state
  * of agent execution including iteration count, token usage, and custom middleware state.
@@ -33,7 +30,6 @@ public class AgentContext {
   private long completionTokens;
   private long totalTokens;
   private ApprovalMode approvalMode;
-  private final Map<String, Object> extraState = new HashMap<>();
 
   public AgentContext(String userInput, ConversationMemory memory, ApprovalMode approvalMode) {
     this.userInput = userInput;
@@ -82,9 +78,5 @@ public class AgentContext {
 
   public void setApprovalMode(ApprovalMode approvalMode) {
     this.approvalMode = approvalMode;
-  }
-
-  public Map<String, Object> getExtraState() {
-    return extraState;
   }
 }

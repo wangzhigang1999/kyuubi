@@ -21,9 +21,22 @@ package org.apache.kyuubi.engine.dataagent.runtime.event;
  * Base class for events emitted by the ReAct agent loop. Each event represents a discrete step in
  * the agent's reasoning and execution process, enabling real-time token-level streaming to clients.
  *
+ * <p>Every subclass must declare its {@link EventType}, which also determines the SSE event name
+ * used on the wire. This allows consumers to {@code switch} on the type rather than using {@code
+ * instanceof} chains.
+ *
  * <p>Package-private constructor restricts subclassing to this package.
  */
 public abstract class AgentEvent {
 
-  AgentEvent() {}
+  private final EventType eventType;
+
+  AgentEvent(EventType eventType) {
+    this.eventType = eventType;
+  }
+
+  /** Returns the type of this event. */
+  public EventType eventType() {
+    return eventType;
+  }
 }

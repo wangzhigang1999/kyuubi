@@ -29,7 +29,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
-import org.apache.kyuubi.engine.dataagent.prompt.SystemPrompts;
+import org.apache.kyuubi.engine.dataagent.prompt.SystemPromptBuilder;
+import org.apache.kyuubi.engine.dataagent.runtime.event.*;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
 import org.apache.kyuubi.engine.dataagent.tool.schema.SchemaInspectTool;
 import org.apache.kyuubi.engine.dataagent.tool.sql.SqlQueryTool;
@@ -49,7 +50,7 @@ public class ReactAgentLiveTest {
   private static final String BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
   private static final String MODEL_NAME = "qwen3.5-plus-2026-02-15";
 
-  private static final String SYSTEM_PROMPT = SystemPrompts.defaultPrompt();
+  private static final String SYSTEM_PROMPT = SystemPromptBuilder.create().build();
 
   private final List<File> tempFiles = new ArrayList<>();
   private OpenAIClient client;
@@ -77,21 +78,21 @@ public class ReactAgentLiveTest {
             .build();
 
     List<AgentEvent> events = new CopyOnWriteArrayList<>();
-    ConversationMemory memory = new ConversationMemory(100);
+    ConversationMemory memory = new ConversationMemory();
 
     agent.run("What is Apache Kyuubi?", memory, ApprovalMode.YOLO, events::add);
 
     List<String> deltas =
         events.stream()
-            .filter(e -> e instanceof AgentEvent.ContentDelta)
-            .map(e -> ((AgentEvent.ContentDelta) e).text())
+            .filter(e -> e instanceof ContentDelta)
+            .map(e -> ((ContentDelta) e).text())
             .collect(Collectors.toList());
 
     assertTrue("Expected multiple ContentDelta events", deltas.size() > 1);
     assertFalse("Streamed text should not be empty", String.join("", deltas).isEmpty());
-    assertTrue(events.stream().anyMatch(e -> e instanceof AgentEvent.StepStart));
-    assertTrue(events.stream().anyMatch(e -> e instanceof AgentEvent.ContentComplete));
-    assertTrue(events.get(events.size() - 1) instanceof AgentEvent.AgentFinish);
+    assertTrue(events.stream().anyMatch(e -> e instanceof StepStart));
+    assertTrue(events.stream().anyMatch(e -> e instanceof ContentComplete));
+    assertTrue(events.get(events.size() - 1) instanceof AgentFinish);
     assertEquals(2, memory.getRawMessages().size()); // user + assistant
   }
 
@@ -112,7 +113,7 @@ public class ReactAgentLiveTest {
             .build();
 
     List<AgentEvent> events = new CopyOnWriteArrayList<>();
-    ConversationMemory memory = new ConversationMemory(100);
+    ConversationMemory memory = new ConversationMemory();
 
     agent.run(
         "What is the total revenue by product category? Which category has the highest revenue?",
@@ -123,22 +124,20 @@ public class ReactAgentLiveTest {
     printEventStream(events);
 
     // Verify tool calls happened
-    List<AgentEvent.ToolCall> toolCalls =
+    List<ToolCall> toolCalls =
         events.stream()
-            .filter(e -> e instanceof AgentEvent.ToolCall)
-            .map(e -> (AgentEvent.ToolCall) e)
+            .filter(e -> e instanceof ToolCall)
+            .map(e -> (ToolCall) e)
             .collect(Collectors.toList());
-    List<AgentEvent.ToolResult> toolResults =
+    List<ToolResult> toolResults =
         events.stream()
-            .filter(e -> e instanceof AgentEvent.ToolResult)
-            .map(e -> (AgentEvent.ToolResult) e)
+            .filter(e -> e instanceof ToolResult)
+            .map(e -> (ToolResult) e)
             .collect(Collectors.toList());
 
     assertFalse("Agent should have called at least one tool", toolCalls.isEmpty());
     assertFalse("Agent should have received tool results", toolResults.isEmpty());
-    assertTrue(
-        "Tool calls should not error",
-        toolResults.stream().noneMatch(AgentEvent.ToolResult::isError));
+    assertTrue("Tool calls should not error", toolResults.stream().noneMatch(ToolResult::isError));
 
     // Verify schema inspect was called
     assertTrue(
@@ -153,8 +152,8 @@ public class ReactAgentLiveTest {
     // Verify final answer mentions "Electronics" (highest revenue)
     List<String> completions =
         events.stream()
-            .filter(e -> e instanceof AgentEvent.ContentComplete)
-            .map(e -> ((AgentEvent.ContentComplete) e).fullText())
+            .filter(e -> e instanceof ContentComplete)
+            .map(e -> ((ContentComplete) e).fullText())
             .collect(Collectors.toList());
     String lastAnswer = completions.get(completions.size() - 1);
     assertTrue(
@@ -163,8 +162,8 @@ public class ReactAgentLiveTest {
 
     // Verify agent finished successfully
     AgentEvent last = events.get(events.size() - 1);
-    assertTrue(last instanceof AgentEvent.AgentFinish);
-    assertTrue("Should take multiple steps", ((AgentEvent.AgentFinish) last).totalSteps() > 1);
+    assertTrue(last instanceof AgentFinish);
+    assertTrue("Should take multiple steps", ((AgentFinish) last).totalSteps() > 1);
   }
 
   @Test
@@ -184,7 +183,7 @@ public class ReactAgentLiveTest {
             .build();
 
     // Shared memory across turns
-    ConversationMemory memory = new ConversationMemory(100);
+    ConversationMemory memory = new ConversationMemory();
 
     // Turn 1
     List<AgentEvent> events1 = new CopyOnWriteArrayList<>();
@@ -196,11 +195,8 @@ public class ReactAgentLiveTest {
     assertTrue(
         "Turn 1 should query the database",
         events1.stream()
-            .anyMatch(
-                e ->
-                    e instanceof AgentEvent.ToolCall
-                        && "sql_query".equals(((AgentEvent.ToolCall) e).toolName())));
-    assertTrue(events1.get(events1.size() - 1) instanceof AgentEvent.AgentFinish);
+            .anyMatch(e -> e instanceof ToolCall && "sql_query".equals(((ToolCall) e).toolName())));
+    assertTrue(events1.get(events1.size() - 1) instanceof AgentFinish);
 
     // Turn 2: follow-up relying on conversation context
     List<AgentEvent> events2 = new CopyOnWriteArrayList<>();
@@ -213,11 +209,8 @@ public class ReactAgentLiveTest {
     assertTrue(
         "Turn 2 should also query the database",
         events2.stream()
-            .anyMatch(
-                e ->
-                    e instanceof AgentEvent.ToolCall
-                        && "sql_query".equals(((AgentEvent.ToolCall) e).toolName())));
-    assertTrue(events2.get(events2.size() - 1) instanceof AgentEvent.AgentFinish);
+            .anyMatch(e -> e instanceof ToolCall && "sql_query".equals(((ToolCall) e).toolName())));
+    assertTrue(events2.get(events2.size() - 1) instanceof AgentFinish);
 
     // Verify memory accumulated across both turns
     assertTrue(
@@ -229,25 +222,33 @@ public class ReactAgentLiveTest {
 
   private void printEventStream(List<AgentEvent> events) {
     for (AgentEvent event : events) {
-      if (event instanceof AgentEvent.StepStart) {
-        System.out.println("[Step " + ((AgentEvent.StepStart) event).stepNumber() + "]");
-      } else if (event instanceof AgentEvent.ContentDelta) {
-        System.out.print(((AgentEvent.ContentDelta) event).text());
-      } else if (event instanceof AgentEvent.ContentComplete) {
-        System.out.println();
-      } else if (event instanceof AgentEvent.ToolCall) {
-        AgentEvent.ToolCall tc = (AgentEvent.ToolCall) event;
-        System.out.println("[ToolCall] " + tc.toolName() + "(" + tc.toolArgs() + ")");
-      } else if (event instanceof AgentEvent.ToolResult) {
-        AgentEvent.ToolResult tr = (AgentEvent.ToolResult) event;
-        String output = tr.output();
-        String preview = output.length() > 200 ? output.substring(0, 200) + "..." : output;
-        System.out.println("[ToolResult] " + tr.toolName() + " -> " + preview);
-      } else if (event instanceof AgentEvent.AgentFinish) {
-        AgentEvent.AgentFinish f = (AgentEvent.AgentFinish) event;
-        System.out.println("[Finish] steps=" + f.totalSteps() + " tokens=" + f.totalTokens());
-      } else if (event instanceof AgentEvent.AgentError) {
-        System.out.println("[Error] " + ((AgentEvent.AgentError) event).message());
+      switch (event.eventType()) {
+        case STEP_START:
+          System.out.println("[Step " + ((StepStart) event).stepNumber() + "]");
+          break;
+        case CONTENT_DELTA:
+          System.out.print(((ContentDelta) event).text());
+          break;
+        case CONTENT_COMPLETE:
+          System.out.println();
+          break;
+        case TOOL_CALL:
+          ToolCall tc = (ToolCall) event;
+          System.out.println("[ToolCall] " + tc.toolName() + "(" + tc.toolArgs() + ")");
+          break;
+        case TOOL_RESULT:
+          ToolResult tr = (ToolResult) event;
+          String output = tr.output();
+          String preview = output.length() > 200 ? output.substring(0, 200) + "..." : output;
+          System.out.println("[ToolResult] " + tr.toolName() + " -> " + preview);
+          break;
+        case FINISH:
+          AgentFinish f = (AgentFinish) event;
+          System.out.println("[Finish] steps=" + f.totalSteps() + " tokens=" + f.totalTokens());
+          break;
+        case ERROR:
+          System.out.println("[Error] " + ((AgentError) event).message());
+          break;
       }
     }
     System.out.println();

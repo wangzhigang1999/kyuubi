@@ -31,7 +31,7 @@ public class ConversationMemoryTest {
 
   @Test
   public void testManagesMessagesCorrectly() {
-    ConversationMemory memory = new ConversationMemory(100);
+    ConversationMemory memory = new ConversationMemory();
     memory.setSystemPrompt("You are a test agent.");
     memory.addUserMessage("Hello");
 
@@ -42,78 +42,23 @@ public class ConversationMemoryTest {
   }
 
   @Test
-  public void testWindowingSkipsToolResultOrphans() {
-    ConversationMemory memory = new ConversationMemory(3);
-    memory.addUserMessage("q1");
-    memory.addAssistantMessage(
-        ChatCompletionAssistantMessageParam.builder().content("thinking").build());
-    memory.addToolResult("call-1", "result-1");
-    memory.addUserMessage("q2");
-    memory.addUserMessage("q3");
-
-    List<ChatCompletionMessageParam> messages = memory.getMessages();
-    assertFalse("Should not start with a tool message", messages.get(0).isTool());
-  }
-
-  @Test
-  public void testWindowingEdgeCaseAllToolResults() {
-    // Edge case: window boundary lands in a sequence of tool results
-    ConversationMemory memory = new ConversationMemory(2);
-    memory.addToolResult("call-1", "r1");
-    memory.addToolResult("call-2", "r2");
-    memory.addToolResult("call-3", "r3");
-
-    // Should not crash; should return at least the last message
-    List<ChatCompletionMessageParam> messages = memory.getMessages();
-    assertFalse("Should return at least one message", messages.isEmpty());
-  }
-
-  @Test
-  public void testWindowingWithMaxMessagesOne() {
-    ConversationMemory memory = new ConversationMemory(1);
+  public void testReturnsAllMessages() {
+    ConversationMemory memory = new ConversationMemory();
+    memory.setSystemPrompt("system");
     memory.addUserMessage("q1");
     memory.addAssistantMessage(ChatCompletionAssistantMessageParam.builder().content("a1").build());
     memory.addToolResult("call-1", "result-1");
-
-    List<ChatCompletionMessageParam> messages = memory.getMessages();
-    assertFalse("Should return at least one message", messages.isEmpty());
-    assertFalse("Should not start with tool message", messages.get(0).isTool());
-  }
-
-  @Test
-  public void testWindowingPreservesSystemPrompt() {
-    ConversationMemory memory = new ConversationMemory(2);
-    memory.setSystemPrompt("system");
-    memory.addUserMessage("q1");
     memory.addUserMessage("q2");
-    memory.addUserMessage("q3");
 
     List<ChatCompletionMessageParam> messages = memory.getMessages();
+    // system + 4 messages
+    assertEquals(5, messages.size());
     assertTrue("First message should be system", messages.get(0).isSystem());
-    // System prompt + 2 windowed messages = 3
-    assertEquals(3, messages.size());
-  }
-
-  @Test
-  public void testNewMessagesSincePersisted() {
-    ConversationMemory memory = new ConversationMemory(100);
-    memory.addUserMessage("q1");
-    memory.addUserMessage("q2");
-
-    List<ChatCompletionMessageParam> batch1 = memory.getNewMessagesSincePersisted();
-    assertEquals(2, batch1.size());
-
-    memory.addUserMessage("q3");
-    List<ChatCompletionMessageParam> batch2 = memory.getNewMessagesSincePersisted();
-    assertEquals(1, batch2.size());
-
-    List<ChatCompletionMessageParam> batch3 = memory.getNewMessagesSincePersisted();
-    assertTrue(batch3.isEmpty());
   }
 
   @Test
   public void testClear() {
-    ConversationMemory memory = new ConversationMemory(100);
+    ConversationMemory memory = new ConversationMemory();
     memory.addUserMessage("q1");
     assertEquals(1, memory.size());
 
@@ -124,7 +69,7 @@ public class ConversationMemoryTest {
 
   @Test
   public void testGetRawMessagesReturnsDefensiveCopy() {
-    ConversationMemory memory = new ConversationMemory(100);
+    ConversationMemory memory = new ConversationMemory();
     memory.addUserMessage("q1");
     List<ChatCompletionMessageParam> raw = memory.getRawMessages();
     assertEquals(1, raw.size());
@@ -141,7 +86,7 @@ public class ConversationMemoryTest {
 
   @Test
   public void testConcurrentAccess() throws Exception {
-    ConversationMemory memory = new ConversationMemory(1000);
+    ConversationMemory memory = new ConversationMemory();
     int threads = 8;
     int messagesPerThread = 100;
     CountDownLatch latch = new CountDownLatch(threads);

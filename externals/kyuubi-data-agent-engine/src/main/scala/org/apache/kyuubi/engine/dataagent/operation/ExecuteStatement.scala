@@ -19,8 +19,8 @@ package org.apache.kyuubi.engine.dataagent.operation
 import java.util.concurrent.RejectedExecutionException
 
 import org.apache.kyuubi.{KyuubiSQLException, Logging}
-import org.apache.kyuubi.engine.dataagent.runtime.AgentEvent
 import org.apache.kyuubi.engine.dataagent.provider.DataAgentProvider
+import org.apache.kyuubi.engine.dataagent.runtime.event.{AgentError, AgentEvent, ContentDelta, EventType, ToolCall, ToolResult}
 import org.apache.kyuubi.operation.OperationState
 import org.apache.kyuubi.operation.log.OperationLog
 import org.apache.kyuubi.session.Session
@@ -63,6 +63,15 @@ class ExecuteStatement(
     }
   }
 
+  private def escapeJson(s: String): String = {
+    if (s == null) return ""
+    s.replace("\\", "\\\\")
+      .replace("\"", "\\\"")
+      .replace("\n", "\\n")
+      .replace("\r", "\\r")
+      .replace("\t", "\\t")
+  }
+
   private def executeStatement(): Unit = {
     setState(OperationState.RUNNING)
 
@@ -72,23 +81,29 @@ class ExecuteStatement(
         sessionId,
         statement,
         { (event: AgentEvent) =>
-          event match {
-            case delta: AgentEvent.ContentDelta =>
-              incrementalIter.append(Array(delta.text()))
-            case complete: AgentEvent.ContentComplete =>
-            // ContentComplete is for the full text — already streamed via ContentDelta
-            case toolCall: AgentEvent.ToolCall =>
+          val sseType = event.eventType().sseEventName()
+          event.eventType() match {
+            case EventType.CONTENT_DELTA =>
+              val delta = event.asInstanceOf[ContentDelta]
               incrementalIter.append(Array(
-                s"\n[Tool: ${toolCall.toolName()}] ${toolCall.toolArgs()}\n"))
-            case toolResult: AgentEvent.ToolResult =>
+                s"""{"type":"$sseType","text":"${escapeJson(delta.text())}"}"""))
+            case EventType.TOOL_CALL =>
+              val toolCall = event.asInstanceOf[ToolCall]
               incrementalIter.append(Array(
-                s"\n[Result: ${toolResult.toolName()}] ${toolResult.output()}\n"))
-            case stepStart: AgentEvent.StepStart =>
-            // optional: could emit step markers
-            case err: AgentEvent.AgentError =>
-              incrementalIter.append(Array(s"\n[Error] ${err.message()}\n"))
-            case _: AgentEvent.AgentFinish =>
-            // terminal event
+                s"""{"type":"$sseType","name":"${escapeJson(toolCall.toolName())}",""" +
+                  s""""args":"${escapeJson(toolCall.toolArgs().toString)}"}"""))
+            case EventType.TOOL_RESULT =>
+              val toolResult = event.asInstanceOf[ToolResult]
+              incrementalIter.append(Array(
+                s"""{"type":"$sseType","name":"${escapeJson(toolResult.toolName())}",""" +
+                  s""""output":"${escapeJson(toolResult.output())}"}"""))
+            case EventType.ERROR =>
+              val err = event.asInstanceOf[AgentError]
+              incrementalIter.append(Array(
+                s"""{"type":"$sseType","message":"${escapeJson(err.message())}"}"""))
+            case EventType.FINISH =>
+              incrementalIter.append(Array(s"""{"type":"$sseType"}"""))
+            case _ => // CONTENT_COMPLETE, STEP_START — not sent over SSE
           }
         })
 

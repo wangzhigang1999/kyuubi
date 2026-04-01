@@ -24,13 +24,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import javax.sql.DataSource;
 import org.apache.kyuubi.config.KyuubiConf;
-import org.apache.kyuubi.engine.dataagent.runtime.AgentEvent;
-import org.apache.kyuubi.engine.dataagent.runtime.ApprovalMode;
-import org.apache.kyuubi.engine.dataagent.runtime.ConversationMemory;
-import org.apache.kyuubi.engine.dataagent.runtime.ReactAgent;
 import org.apache.kyuubi.engine.dataagent.datasource.DataSourceFactory;
 import org.apache.kyuubi.engine.dataagent.prompt.SystemPromptBuilder;
 import org.apache.kyuubi.engine.dataagent.provider.DataAgentProvider;
+import org.apache.kyuubi.engine.dataagent.runtime.ApprovalMode;
+import org.apache.kyuubi.engine.dataagent.runtime.ConversationMemory;
+import org.apache.kyuubi.engine.dataagent.runtime.ReactAgent;
+import org.apache.kyuubi.engine.dataagent.runtime.event.AgentError;
+import org.apache.kyuubi.engine.dataagent.runtime.event.AgentEvent;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
 import org.apache.kyuubi.engine.dataagent.tool.schema.SchemaInspectTool;
 import org.apache.kyuubi.engine.dataagent.tool.sql.SqlQueryTool;
@@ -47,7 +48,6 @@ public class OpenAiProvider implements DataAgentProvider {
 
   private final ReactAgent agent;
   private final DataSource dataSource;
-  private final int maxMessages;
   private final ConcurrentHashMap<String, ConversationMemory> sessions = new ConcurrentHashMap<>();
 
   public OpenAiProvider(KyuubiConf conf) {
@@ -65,34 +65,41 @@ public class OpenAiProvider implements DataAgentProvider {
     int maxIterations = (int) conf.get(KyuubiConf.ENGINE_DATA_AGENT_MAX_ITERATIONS());
 
     // Register tools and build prompt from JDBC URL
-    ToolRegistry toolRegistry = new ToolRegistry();
-    SystemPromptBuilder promptBuilder = SystemPromptBuilder.create();
-    scala.Option<String> jdbcUrlOpt = conf.get(KyuubiConf.ENGINE_DATA_AGENT_JDBC_URL());
-    if (jdbcUrlOpt.isDefined()) {
-      String jdbcUrl = jdbcUrlOpt.get();
-      this.dataSource = DataSourceFactory.create(jdbcUrl);
-      toolRegistry.register(new SchemaInspectTool(dataSource));
-      toolRegistry.register(new SqlQueryTool(dataSource));
-      promptBuilder.jdbcUrl(jdbcUrl);
-    } else {
-      this.dataSource = null;
+    DataSource ds = null;
+    try {
+      ToolRegistry toolRegistry = new ToolRegistry();
+      SystemPromptBuilder promptBuilder = SystemPromptBuilder.create();
+      scala.Option<String> jdbcUrlOpt = conf.get(KyuubiConf.ENGINE_DATA_AGENT_JDBC_URL());
+      if (jdbcUrlOpt.isDefined()) {
+        String jdbcUrl = jdbcUrlOpt.get();
+        LOG.info("Data Agent JDBC URL: {}", jdbcUrl);
+        ds = DataSourceFactory.create(jdbcUrl);
+        toolRegistry.register(new SchemaInspectTool(ds));
+        toolRegistry.register(new SqlQueryTool(ds));
+        promptBuilder.jdbcUrl(jdbcUrl);
+      }
+
+      this.agent =
+          ReactAgent.builder()
+              .client(client)
+              .modelName(modelName)
+              .toolRegistry(toolRegistry)
+              .maxIterations(maxIterations)
+              .systemPrompt(promptBuilder.build())
+              .build();
+
+      this.dataSource = ds;
+    } catch (Exception e) {
+      if (ds instanceof HikariDataSource) {
+        ((HikariDataSource) ds).close();
+      }
+      throw e;
     }
-
-    this.agent =
-        ReactAgent.builder()
-            .client(client)
-            .modelName(modelName)
-            .toolRegistry(toolRegistry)
-            .maxIterations(maxIterations)
-            .systemPrompt(promptBuilder.build())
-            .build();
-
-    this.maxMessages = 100;
   }
 
   @Override
   public void open(String sessionId, String user) {
-    sessions.put(sessionId, new ConversationMemory(maxMessages));
+    sessions.put(sessionId, new ConversationMemory());
     LOG.info("Opened Data Agent session {} for user {}", sessionId, user);
   }
 
@@ -100,7 +107,7 @@ public class OpenAiProvider implements DataAgentProvider {
   public void run(String sessionId, String question, Consumer<AgentEvent> onEvent) {
     ConversationMemory memory = sessions.get(sessionId);
     if (memory == null) {
-      onEvent.accept(new AgentEvent.AgentError("Session not found. Please reconnect."));
+      onEvent.accept(new AgentError("Session not found. Please reconnect."));
       return;
     }
 
