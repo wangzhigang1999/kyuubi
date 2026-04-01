@@ -15,12 +15,17 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.engine.dataagent.agent;
+package org.apache.kyuubi.engine.dataagent.runtime.middleware;
 
 import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
 import java.util.List;
 import java.util.Map;
+import org.apache.kyuubi.engine.dataagent.runtime.AgentContext;
+import org.apache.kyuubi.engine.dataagent.runtime.event.AgentError;
+import org.apache.kyuubi.engine.dataagent.runtime.event.AgentEvent;
+import org.apache.kyuubi.engine.dataagent.runtime.event.StepStart;
+import org.apache.kyuubi.engine.dataagent.runtime.event.ToolResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -99,12 +104,12 @@ public class LoggingMiddleware implements AgentMiddleware {
 
   @Override
   public AgentEvent onEvent(AgentContext ctx, AgentEvent event) {
-    if (event instanceof AgentEvent.StepStart) {
-      LOG.info("[agent] Step {}", ((AgentEvent.StepStart) event).stepNumber());
-    } else if (event instanceof AgentEvent.AgentError) {
-      LOG.error("[agent] ERROR: {}", ((AgentEvent.AgentError) event).message());
-    } else if (event instanceof AgentEvent.ToolResult) {
-      AgentEvent.ToolResult tr = (AgentEvent.ToolResult) event;
+    if (event instanceof StepStart) {
+      LOG.info("[agent] Step {}", ((StepStart) event).stepNumber());
+    } else if (event instanceof AgentError) {
+      LOG.error("[agent] ERROR: {}", ((AgentError) event).message());
+    } else if (event instanceof ToolResult) {
+      ToolResult tr = (ToolResult) event;
       if (tr.isError()) {
         LOG.warn("[agent] Tool error: {} -> {}", tr.toolName(), truncate(tr.output()));
       }

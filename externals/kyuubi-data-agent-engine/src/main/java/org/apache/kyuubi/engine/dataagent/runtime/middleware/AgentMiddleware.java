@@ -15,12 +15,14 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.engine.dataagent.agent;
+package org.apache.kyuubi.engine.dataagent.runtime.middleware;
 
 import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
 import java.util.List;
 import java.util.Map;
+import org.apache.kyuubi.engine.dataagent.runtime.AgentContext;
+import org.apache.kyuubi.engine.dataagent.runtime.event.AgentEvent;
 
 /**
  * Middleware interface for the Data Agent ReAct loop. Middlewares are executed in onion-model
@@ -91,24 +93,18 @@ public interface AgentMiddleware {
     }
   }
 
-  /** Decision to deny or modify a tool call. */
+  /** Decision to deny or allow a tool call. */
   class ToolCallDecision {
     private final boolean allow;
-    private final Map<String, Object> modifiedArgs;
     private final String reason;
 
-    public ToolCallDecision(boolean allow, Map<String, Object> modifiedArgs, String reason) {
+    public ToolCallDecision(boolean allow, String reason) {
       this.allow = allow;
-      this.modifiedArgs = modifiedArgs;
       this.reason = reason;
     }
 
     public boolean allow() {
       return allow;
-    }
-
-    public Map<String, Object> modifiedArgs() {
-      return modifiedArgs;
     }
 
     public String reason() {

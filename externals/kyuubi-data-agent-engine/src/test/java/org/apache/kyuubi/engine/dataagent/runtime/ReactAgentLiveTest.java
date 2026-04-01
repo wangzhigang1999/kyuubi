@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.engine.dataagent.agent;
+package org.apache.kyuubi.engine.dataagent.runtime;
 
 import static org.junit.Assert.*;
 import static org.junit.Assume.assumeTrue;

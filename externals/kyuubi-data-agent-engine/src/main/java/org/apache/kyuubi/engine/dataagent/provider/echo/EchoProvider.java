@@ -18,7 +18,7 @@
 package org.apache.kyuubi.engine.dataagent.provider.echo;
 
 import java.util.function.Consumer;
-import org.apache.kyuubi.engine.dataagent.agent.AgentEvent;
+import org.apache.kyuubi.engine.dataagent.runtime.AgentEvent;
 import org.apache.kyuubi.engine.dataagent.provider.DataAgentProvider;
 
 /** A simple echo provider for testing purposes. Simulates the agent event stream. */

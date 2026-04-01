@@ -19,7 +19,7 @@ package org.apache.kyuubi.engine.dataagent.operation
 import java.util.concurrent.RejectedExecutionException
 
 import org.apache.kyuubi.{KyuubiSQLException, Logging}
-import org.apache.kyuubi.engine.dataagent.agent.AgentEvent
+import org.apache.kyuubi.engine.dataagent.runtime.AgentEvent
 import org.apache.kyuubi.engine.dataagent.provider.DataAgentProvider
 import org.apache.kyuubi.operation.OperationState
 import org.apache.kyuubi.operation.log.OperationLog

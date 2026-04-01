@@ -15,14 +15,15 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.engine.dataagent.agent;
+package org.apache.kyuubi.engine.dataagent.runtime.event;
 
-/** Approval modes for tool execution in the Data Agent engine. */
-public enum ApprovalMode {
-  /** All tools require explicit user approval. */
-  STRICT,
-  /** Only non-readonly tools require approval. */
-  NORMAL,
-  /** All tools are auto-approved. */
-  YOLO
+/**
+ * Base class for events emitted by the ReAct agent loop. Each event represents a discrete step in
+ * the agent's reasoning and execution process, enabling real-time token-level streaming to clients.
+ *
+ * <p>Package-private constructor restricts subclassing to this package.
+ */
+public abstract class AgentEvent {
+
+  AgentEvent() {}
 }
