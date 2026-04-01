@@ -21,6 +21,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.Statement;
+import java.util.regex.Pattern;
 import javax.sql.DataSource;
 import org.apache.kyuubi.engine.dataagent.tool.AgentTool;
 import org.slf4j.Logger;
@@ -30,6 +31,13 @@ import org.slf4j.LoggerFactory;
 public class SqlQueryTool implements AgentTool<SqlQueryArgs> {
 
   private static final Logger LOG = LoggerFactory.getLogger(SqlQueryTool.class);
+
+  /** Matches dangerous SQL keywords as whole words (case-insensitive). */
+  private static final Pattern DANGEROUS_KEYWORDS =
+      Pattern.compile(
+          "\\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|MERGE|GRANT|REVOKE)\\b",
+          Pattern.CASE_INSENSITIVE);
+
   private final DataSource dataSource;
 
   public SqlQueryTool(DataSource dataSource) {
@@ -62,13 +70,28 @@ public class SqlQueryTool implements AgentTool<SqlQueryArgs> {
     }
 
     // Strip markdown code block if present
-    sql = cleanSql(sql);
+    sql = stripMarkdown(sql);
 
-    // Safety check: only SELECT allowed
-    String upper = sql.toUpperCase().replaceAll("^\\s+", "");
+    // Reject multiple statements (semicolons outside of string literals)
+    if (containsSemicolon(sql)) {
+      return "Error: Only single SELECT statements are allowed. Multiple statements are rejected.";
+    }
+
+    // Strip SQL comments before safety check
+    String stripped = stripComments(sql).trim();
+    if (stripped.isEmpty()) {
+      return "Error: SQL is empty after stripping comments.";
+    }
+
+    // Safety check: must start with SELECT or WITH, no dangerous keywords
+    String upper = stripped.toUpperCase();
     if (!upper.startsWith("SELECT") && !upper.startsWith("WITH")) {
       return "Error: Only SELECT queries are allowed. Got: "
-          + sql.substring(0, Math.min(50, sql.length()));
+          + stripped.substring(0, Math.min(50, stripped.length()));
+    }
+
+    if (DANGEROUS_KEYWORDS.matcher(stripped).find()) {
+      return "Error: SQL contains forbidden keywords. Only read-only SELECT is allowed.";
     }
 
     int maxRows = args.maxRows > 0 ? args.maxRows : 100;
@@ -76,11 +99,12 @@ public class SqlQueryTool implements AgentTool<SqlQueryArgs> {
     try (Connection conn = dataSource.getConnection();
         Statement stmt = conn.createStatement()) {
       stmt.setMaxRows(maxRows);
-      ResultSet rs = stmt.executeQuery(sql);
-      return formatResult(rs);
+      try (ResultSet rs = stmt.executeQuery(sql)) {
+        return formatResult(rs);
+      }
     } catch (Exception e) {
       LOG.warn("SQL execution error: {}", e.getMessage());
-      return "SQL Error: " + e.getMessage();
+      return "Error: SQL execution failed: " + e.getMessage();
     }
   }
 
@@ -120,17 +144,75 @@ public class SqlQueryTool implements AgentTool<SqlQueryArgs> {
     return sb.toString();
   }
 
-  private static String cleanSql(String sql) {
-    if (sql.startsWith("```")) {
-      String[] lines = sql.split("\n");
+  /** Strip markdown code fences (``` or ```sql etc.) wrapping the SQL. */
+  static String stripMarkdown(String sql) {
+    String trimmed = sql.trim();
+    if (trimmed.startsWith("```")) {
+      String[] lines = trimmed.split("\n");
       StringBuilder cleaned = new StringBuilder();
       for (int i = 1; i < lines.length; i++) {
-        if (!lines[i].startsWith("```")) {
+        if (!lines[i].trim().startsWith("```")) {
           cleaned.append(lines[i]).append("\n");
         }
       }
       return cleaned.toString().trim();
     }
     return sql;
+  }
+
+  /** Strip single-line (--) and multi-line comments from SQL. */
+  static String stripComments(String sql) {
+    StringBuilder sb = new StringBuilder(sql.length());
+    int i = 0;
+    boolean inSingleQuote = false;
+
+    while (i < sql.length()) {
+      char c = sql.charAt(i);
+
+      // Track string literals to avoid stripping comments inside them
+      if (c == '\'' && !inSingleQuote) {
+        inSingleQuote = true;
+        sb.append(c);
+        i++;
+      } else if (c == '\'' && inSingleQuote) {
+        inSingleQuote = false;
+        sb.append(c);
+        i++;
+      } else if (inSingleQuote) {
+        sb.append(c);
+        i++;
+      } else if (c == '-' && i + 1 < sql.length() && sql.charAt(i + 1) == '-') {
+        // Single-line comment: skip until end of line
+        while (i < sql.length() && sql.charAt(i) != '\n') {
+          i++;
+        }
+      } else if (c == '/' && i + 1 < sql.length() && sql.charAt(i + 1) == '*') {
+        // Multi-line comment: skip until */
+        i += 2;
+        while (i + 1 < sql.length() && !(sql.charAt(i) == '*' && sql.charAt(i + 1) == '/')) {
+          i++;
+        }
+        i += 2; // skip */
+      } else {
+        sb.append(c);
+        i++;
+      }
+    }
+
+    return sb.toString();
+  }
+
+  /** Check for semicolons outside of string literals (stacked query prevention). */
+  static boolean containsSemicolon(String sql) {
+    boolean inSingleQuote = false;
+    for (int i = 0; i < sql.length(); i++) {
+      char c = sql.charAt(i);
+      if (c == '\'') {
+        inSingleQuote = !inSingleQuote;
+      } else if (c == ';' && !inSingleQuote) {
+        return true;
+      }
+    }
+    return false;
   }
 }

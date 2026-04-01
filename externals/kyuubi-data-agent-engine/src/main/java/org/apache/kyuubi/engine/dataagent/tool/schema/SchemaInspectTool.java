@@ -59,7 +59,7 @@ public class SchemaInspectTool implements AgentTool<SchemaInspectArgs> {
 
   @Override
   public String execute(SchemaInspectArgs args) {
-    String tableName = args.tableName != null ? args.tableName : "";
+    String tableName = args.tableName != null ? args.tableName.trim() : "";
     try (Connection conn = dataSource.getConnection()) {
       if (tableName.isEmpty()) {
         return listTables(conn);
@@ -68,49 +68,78 @@ public class SchemaInspectTool implements AgentTool<SchemaInspectArgs> {
       }
     } catch (Exception e) {
       LOG.error("Schema inspect error", e);
-      return "Error inspecting schema: " + e.getMessage();
+      return "Error: failed to inspect schema: " + e.getMessage();
     }
   }
 
   private String listTables(Connection conn) throws Exception {
     DatabaseMetaData meta = conn.getMetaData();
-    ResultSet rs = meta.getTables(null, null, "%", new String[] {"TABLE"});
-    StringBuilder sb = new StringBuilder("Tables in database:\n");
-    while (rs.next()) {
-      sb.append("  - ").append(rs.getString("TABLE_NAME")).append("\n");
+    try (ResultSet rs = meta.getTables(null, null, "%", new String[] {"TABLE"})) {
+      StringBuilder sb = new StringBuilder("Tables in database:\n");
+      while (rs.next()) {
+        String name = rs.getString("TABLE_NAME");
+        if (name != null) {
+          sb.append("  - ").append(name).append("\n");
+        }
+      }
+      return sb.toString();
     }
-    return sb.toString();
   }
 
   private String describeTable(Connection conn, String tableName) throws Exception {
+    // Validate table name against actual metadata to prevent SQL injection
+    if (!tableExists(conn, tableName)) {
+      return "Error: table '" + tableName + "' does not exist.";
+    }
+
     StringBuilder sb = new StringBuilder();
 
     // Column info
     DatabaseMetaData meta = conn.getMetaData();
-    ResultSet cols = meta.getColumns(null, null, tableName, "%");
-    sb.append("Table: ").append(tableName).append("\nColumns:\n");
-    while (cols.next()) {
-      String colName = cols.getString("COLUMN_NAME");
-      String typeName = cols.getString("TYPE_NAME");
-      String nullable = "YES".equals(cols.getString("IS_NULLABLE")) ? " (nullable)" : "";
-      sb.append("  - ").append(colName).append(": ").append(typeName).append(nullable).append("\n");
+    try (ResultSet cols = meta.getColumns(null, null, tableName, "%")) {
+      sb.append("Table: ").append(tableName).append("\nColumns:\n");
+      while (cols.next()) {
+        String colName = cols.getString("COLUMN_NAME");
+        String typeName = cols.getString("TYPE_NAME");
+        String nullable = "YES".equals(cols.getString("IS_NULLABLE")) ? " (nullable)" : "";
+        sb.append("  - ")
+            .append(colName)
+            .append(": ")
+            .append(typeName)
+            .append(nullable)
+            .append("\n");
+      }
     }
 
-    // Sample data (first 3 rows)
-    try (Statement stmt = conn.createStatement()) {
-      ResultSet sample = stmt.executeQuery("SELECT * FROM " + tableName + " LIMIT 3");
+    // Sample data (first 3 rows) — table name is validated above, safe to use in query
+    try (Statement stmt = conn.createStatement();
+        ResultSet sample = stmt.executeQuery("SELECT * FROM \"" + tableName + "\" LIMIT 3")) {
       int colCount = sample.getMetaData().getColumnCount();
       sb.append("Sample data (first 3 rows):\n");
       while (sample.next()) {
         sb.append("  ");
         for (int i = 1; i <= colCount; i++) {
           if (i > 1) sb.append(" | ");
-          sb.append(sample.getString(i));
+          String val = sample.getString(i);
+          sb.append(val != null ? val : "NULL");
         }
         sb.append("\n");
       }
     }
 
     return sb.toString();
+  }
+
+  private static boolean tableExists(Connection conn, String tableName) throws Exception {
+    DatabaseMetaData meta = conn.getMetaData();
+    try (ResultSet rs = meta.getTables(null, null, tableName, new String[] {"TABLE"})) {
+      while (rs.next()) {
+        String found = rs.getString("TABLE_NAME");
+        if (tableName.equals(found)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 }

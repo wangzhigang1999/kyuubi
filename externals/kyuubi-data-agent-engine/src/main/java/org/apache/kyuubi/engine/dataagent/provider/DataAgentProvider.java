@@ -38,8 +38,17 @@ public interface DataAgentProvider {
    */
   void run(String sessionId, String question, Consumer<AgentEvent> onEvent);
 
-  /** Close and clean up a session. */
+  /**
+   * Close and clean up a single session, releasing session-scoped resources such as conversation
+   * history and session state. Called when one user session ends.
+   */
   void close(String sessionId);
+
+  /**
+   * Stop the provider itself, releasing engine-level resources shared across all sessions (e.g.
+   * HTTP connection pools, thread pools). Called once when the entire engine shuts down.
+   */
+  default void stop() {}
 
   static DataAgentProvider load(KyuubiConf conf) {
     String providerClass = conf.get(KyuubiConf.ENGINE_DATA_AGENT_PROVIDER());

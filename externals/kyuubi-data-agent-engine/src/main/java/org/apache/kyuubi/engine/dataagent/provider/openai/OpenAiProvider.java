@@ -19,6 +19,7 @@ package org.apache.kyuubi.engine.dataagent.provider.openai;
 
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
+import com.zaxxer.hikari.HikariDataSource;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import javax.sql.DataSource;
@@ -27,13 +28,14 @@ import org.apache.kyuubi.engine.dataagent.agent.AgentEvent;
 import org.apache.kyuubi.engine.dataagent.agent.ApprovalMode;
 import org.apache.kyuubi.engine.dataagent.agent.ConversationMemory;
 import org.apache.kyuubi.engine.dataagent.agent.ReactAgent;
+import org.apache.kyuubi.engine.dataagent.datasource.DataSourceFactory;
+import org.apache.kyuubi.engine.dataagent.prompt.SystemPromptBuilder;
 import org.apache.kyuubi.engine.dataagent.provider.DataAgentProvider;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
 import org.apache.kyuubi.engine.dataagent.tool.schema.SchemaInspectTool;
 import org.apache.kyuubi.engine.dataagent.tool.sql.SqlQueryTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.sqlite.SQLiteDataSource;
 
 /**
  * An OpenAI-compatible provider that wires up the full ReactAgent with streaming LLM, tools, and
@@ -43,13 +45,8 @@ public class OpenAiProvider implements DataAgentProvider {
 
   private static final Logger LOG = LoggerFactory.getLogger(OpenAiProvider.class);
 
-  private static final String SYSTEM_PROMPT =
-      "You are a data analysis agent. You query databases and explain data — nothing else.\n"
-          + "You write and execute SQL to answer questions. You never fabricate data.\n"
-          + "When uncertain about data meaning, ask the user rather than assuming.\n"
-          + "Always call describe_schema first to understand the database before writing SQL.";
-
   private final ReactAgent agent;
+  private final DataSource dataSource;
   private final int maxMessages;
   private final ConcurrentHashMap<String, ConversationMemory> sessions = new ConcurrentHashMap<>();
 
@@ -67,13 +64,18 @@ public class OpenAiProvider implements DataAgentProvider {
 
     int maxIterations = (int) conf.get(KyuubiConf.ENGINE_DATA_AGENT_MAX_ITERATIONS());
 
-    // Register tools
+    // Register tools and build prompt from JDBC URL
     ToolRegistry toolRegistry = new ToolRegistry();
+    SystemPromptBuilder promptBuilder = SystemPromptBuilder.create();
     scala.Option<String> jdbcUrlOpt = conf.get(KyuubiConf.ENGINE_DATA_AGENT_JDBC_URL());
     if (jdbcUrlOpt.isDefined()) {
-      DataSource ds = createDataSource(jdbcUrlOpt.get());
-      toolRegistry.register(new SchemaInspectTool(ds));
-      toolRegistry.register(new SqlQueryTool(ds));
+      String jdbcUrl = jdbcUrlOpt.get();
+      this.dataSource = DataSourceFactory.create(jdbcUrl);
+      toolRegistry.register(new SchemaInspectTool(dataSource));
+      toolRegistry.register(new SqlQueryTool(dataSource));
+      promptBuilder.jdbcUrl(jdbcUrl);
+    } else {
+      this.dataSource = null;
     }
 
     this.agent =
@@ -82,7 +84,7 @@ public class OpenAiProvider implements DataAgentProvider {
             .modelName(modelName)
             .toolRegistry(toolRegistry)
             .maxIterations(maxIterations)
-            .systemPrompt(SYSTEM_PROMPT)
+            .systemPrompt(promptBuilder.build())
             .build();
 
     this.maxMessages = 100;
@@ -111,12 +113,11 @@ public class OpenAiProvider implements DataAgentProvider {
     LOG.info("Closed Data Agent session {}", sessionId);
   }
 
-  private static DataSource createDataSource(String jdbcUrl) {
-    if (jdbcUrl.startsWith("jdbc:sqlite:")) {
-      SQLiteDataSource ds = new SQLiteDataSource();
-      ds.setUrl(jdbcUrl);
-      return ds;
+  @Override
+  public void stop() {
+    if (dataSource instanceof HikariDataSource) {
+      ((HikariDataSource) dataSource).close();
+      LOG.info("Closed Data Agent connection pool");
     }
-    throw new IllegalArgumentException("Unsupported JDBC URL: " + jdbcUrl);
   }
 }

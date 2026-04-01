@@ -61,7 +61,7 @@ public class ToolRegistry {
     }
   }
 
-  private Map<String, ChatCompletionTool> ensureSpecs() {
+  private synchronized Map<String, ChatCompletionTool> ensureSpecs() {
     if (cachedSpecs == null) {
       Map<String, ChatCompletionTool> specs = new LinkedHashMap<>();
       for (AgentTool<?> tool : tools.values()) {

@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
+import org.apache.kyuubi.engine.dataagent.prompt.SystemPrompts;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
 import org.apache.kyuubi.engine.dataagent.tool.schema.SchemaInspectTool;
 import org.apache.kyuubi.engine.dataagent.tool.sql.SqlQueryTool;
@@ -48,11 +49,7 @@ public class ReactAgentLiveTest {
   private static final String BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
   private static final String MODEL_NAME = "qwen3.5-plus-2026-02-15";
 
-  private static final String SYSTEM_PROMPT =
-      "You are a data analysis agent. You query databases and explain data — nothing else.\n"
-          + "You write and execute SQL to answer questions. You never fabricate data.\n"
-          + "When uncertain about data meaning, ask the user rather than assuming.\n"
-          + "Always call describe_schema first to understand the database before writing SQL.";
+  private static final String SYSTEM_PROMPT = SystemPrompts.defaultPrompt();
 
   private final List<File> tempFiles = new ArrayList<>();
   private OpenAIClient client;

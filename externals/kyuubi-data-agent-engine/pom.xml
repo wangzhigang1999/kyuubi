@@ -70,6 +70,12 @@
             <version>${sqlite.version}</version>
         </dependency>
 
+        <!-- Connection pool -->
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+        </dependency>
+
         <!-- test dependencies -->
         <dependency>
             <groupId>org.apache.kyuubi</groupId>

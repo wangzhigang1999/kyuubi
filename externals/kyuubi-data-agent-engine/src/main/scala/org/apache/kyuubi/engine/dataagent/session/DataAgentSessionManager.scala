@@ -56,6 +56,11 @@ class DataAgentSessionManager(name: String)
       }
   }
 
+  override def stop(): Unit = {
+    dataAgentProvider.stop()
+    super.stop()
+  }
+
   override def closeSession(sessionHandle: SessionHandle): Unit = {
     super.closeSession(sessionHandle)
     if (conf.get(ENGINE_SHARE_LEVEL) == ShareLevel.CONNECTION.toString) {

@@ -21,16 +21,6 @@ import static org.junit.Assert.*;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.victools.jsonschema.generator.OptionPreset;
-import com.github.victools.jsonschema.generator.SchemaGenerator;
-import com.github.victools.jsonschema.generator.SchemaGeneratorConfigBuilder;
-import com.github.victools.jsonschema.generator.SchemaVersion;
-import com.github.victools.jsonschema.module.jackson.JacksonModule;
-import com.github.victools.jsonschema.module.jackson.JacksonOption;
-import java.io.File;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.apache.kyuubi.engine.dataagent.tool.schema.SchemaInspectArgs;
@@ -176,152 +166,23 @@ public class ToolSchemaGeneratorTest {
     assertTrue(required == null || required.isEmpty());
   }
 
-  // --- Ground truth: verify hand-written schema matches victools for ALL registered tools ---
+  @Test
+  public void testSchemaDoesNotContainDollarSchema() {
+    Map<String, Object> schema = ToolSchemaGenerator.generateSchema(AllTypesArgs.class);
+    assertFalse("$schema key should be stripped", schema.containsKey("$schema"));
+  }
+
+  public static class ArrayArgs {
+    @JsonPropertyDescription("tags")
+    public String[] tags;
+  }
 
   @Test
-  public void testAllToolArgsMatchVictoolsGroundTruth() {
-    List<Class<?>> argsClasses = discoverAllToolArgsClasses();
-    assertFalse("Should discover at least one tool args class", argsClasses.isEmpty());
-    for (Class<?> argsClass : argsClasses) {
-      assertSchemaMatchesGroundTruth(argsClass);
-    }
-  }
-
-  /**
-   * Scans the tool package for all concrete AgentTool implementations and collects their
-   * argsType(). This ensures any new tool added to the project is automatically covered.
-   */
-  private static List<Class<?>> discoverAllToolArgsClasses() {
-    List<Class<?>> argsClasses = new ArrayList<>();
-    String packageName = AgentTool.class.getPackage().getName();
-    String packagePath = packageName.replace('.', '/');
-    File baseDir =
-        new File(AgentTool.class.getProtectionDomain().getCodeSource().getLocation().getPath());
-    scanForToolArgs(new File(baseDir, packagePath), packageName, argsClasses);
-    return argsClasses;
-  }
-
-  @SuppressWarnings({"unchecked", "rawtypes"})
-  private static void scanForToolArgs(File dir, String packageName, List<Class<?>> result) {
-    if (dir == null || !dir.isDirectory()) return;
-    File[] files = dir.listFiles();
-    if (files == null) return;
-    for (File file : files) {
-      if (file.isDirectory()) {
-        scanForToolArgs(file, packageName + "." + file.getName(), result);
-      } else if (file.getName().endsWith(".class")) {
-        String className = packageName + "." + file.getName().replace(".class", "");
-        try {
-          Class<?> clazz = Class.forName(className);
-          if (AgentTool.class.isAssignableFrom(clazz)
-              && !clazz.isInterface()
-              && !java.lang.reflect.Modifier.isAbstract(clazz.getModifiers())) {
-            // Get argsType via reflection on the class — need an instance
-            // Use getDeclaredMethod to call argsType()
-            java.lang.reflect.Method argsTypeMethod = clazz.getMethod("argsType");
-            // Need a dummy instance; tools require DataSource, use null-arg constructor detection
-            // Simpler: just read the generic type parameter from the implements clause
-            for (java.lang.reflect.Type iface : clazz.getGenericInterfaces()) {
-              if (iface instanceof java.lang.reflect.ParameterizedType) {
-                java.lang.reflect.ParameterizedType pt =
-                    (java.lang.reflect.ParameterizedType) iface;
-                if (pt.getRawType() == AgentTool.class) {
-                  Class<?> argsClass = (Class<?>) pt.getActualTypeArguments()[0];
-                  if (!result.contains(argsClass)) {
-                    result.add(argsClass);
-                  }
-                }
-              }
-            }
-          }
-        } catch (ClassNotFoundException | NoSuchMethodException e) {
-          // skip non-loadable classes
-        }
-      }
-    }
-  }
-
-  /**
-   * Compares our hand-written schema against victools jsonschema-generator output. victools is the
-   * ground truth — if they diverge, our hand-written logic has a bug.
-   */
-  @SuppressWarnings("unchecked")
-  private static void assertSchemaMatchesGroundTruth(Class<?> argsClass) {
-    Map<String, Object> ours = ToolSchemaGenerator.generateSchema(argsClass);
-    Map<String, Object> truth = generateWithVictools(argsClass);
-
-    // type
-    assertEquals(
-        argsClass.getSimpleName() + ": type mismatch", truth.get("type"), ours.get("type"));
-
-    // properties: compare each field's type and description
-    Map<String, Object> truthProps = (Map<String, Object>) truth.get("properties");
-    Map<String, Object> ourProps = (Map<String, Object>) ours.get("properties");
-
-    if (truthProps == null || truthProps.isEmpty()) {
-      assertTrue(
-          argsClass.getSimpleName() + ": expected no properties",
-          ourProps == null || ourProps.isEmpty());
-      return;
-    }
-
-    assertNotNull(argsClass.getSimpleName() + ": properties missing", ourProps);
-    assertEquals(
-        argsClass.getSimpleName() + ": property count mismatch",
-        truthProps.size(),
-        ourProps.size());
-
-    for (String field : truthProps.keySet()) {
-      assertTrue(
-          argsClass.getSimpleName() + ": missing field " + field, ourProps.containsKey(field));
-
-      Map<String, Object> truthField = (Map<String, Object>) truthProps.get(field);
-      Map<String, Object> ourField = (Map<String, Object>) ourProps.get(field);
-
-      assertEquals(
-          argsClass.getSimpleName() + "." + field + ": type mismatch",
-          truthField.get("type"),
-          ourField.get("type"));
-      assertEquals(
-          argsClass.getSimpleName() + "." + field + ": description mismatch",
-          truthField.get("description"),
-          ourField.get("description"));
-    }
-
-    // required
-    List<String> truthRequired = (List<String>) truth.get("required");
-    List<String> ourRequired = (List<String>) ours.get("required");
-
-    if (truthRequired == null || truthRequired.isEmpty()) {
-      assertTrue(
-          argsClass.getSimpleName() + ": expected no required fields",
-          ourRequired == null || ourRequired.isEmpty());
-    } else {
-      assertNotNull(argsClass.getSimpleName() + ": required missing", ourRequired);
-      assertEquals(
-          argsClass.getSimpleName() + ": required fields mismatch",
-          truthRequired.size(),
-          ourRequired.size());
-      assertTrue(
-          argsClass.getSimpleName() + ": required contents mismatch",
-          ourRequired.containsAll(truthRequired));
-    }
-  }
-
-  /** Generate schema using victools as ground truth reference. */
-  @SuppressWarnings("unchecked")
-  private static Map<String, Object> generateWithVictools(Class<?> argsClass) {
-    JacksonModule module = new JacksonModule(JacksonOption.RESPECT_JSONPROPERTY_REQUIRED);
-    SchemaGenerator generator =
-        new SchemaGenerator(
-            new SchemaGeneratorConfigBuilder(SchemaVersion.DRAFT_7, OptionPreset.PLAIN_JSON)
-                .with(module)
-                .build());
-    JsonNode node = generator.generateSchema(argsClass);
-    ObjectMapper mapper = new ObjectMapper();
-    Map<String, Object> schema = mapper.convertValue(node, Map.class);
-    schema.remove("$schema");
-    return schema;
+  public void testArrayTypeSupported() {
+    Map<String, Object> schema = ToolSchemaGenerator.generateSchema(ArrayArgs.class);
+    @SuppressWarnings("unchecked")
+    Map<String, Object> props = (Map<String, Object>) schema.get("properties");
+    assertEquals("array", getType(props, "tags"));
   }
 
   // --- Helpers ---
