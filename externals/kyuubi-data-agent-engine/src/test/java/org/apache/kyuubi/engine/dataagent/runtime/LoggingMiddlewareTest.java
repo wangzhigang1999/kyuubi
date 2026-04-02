@@ -39,8 +39,9 @@ public class LoggingMiddlewareTest {
   @Before
   public void setUp() {
     middleware = new LoggingMiddleware();
-    ctx =
-        new AgentContext("What is the total revenue?", new ConversationMemory(), ApprovalMode.YOLO);
+    ConversationMemory memory = new ConversationMemory();
+    memory.addUserMessage("What is the total revenue?");
+    ctx = new AgentContext(memory, ApprovalMode.AUTO_APPROVE);
     ctx.setIteration(1);
   }
 
@@ -58,7 +59,8 @@ public class LoggingMiddlewareTest {
   @Test
   public void testBeforeLlmCallReturnsNull() {
     List<ChatCompletionMessageParam> messages = new ArrayList<>();
-    assertNull(middleware.beforeLlmCall(ctx, messages));
+    assertNull(
+        "Logging middleware should not modify LLM calls", middleware.beforeLlmCall(ctx, messages));
   }
 
   @Test
@@ -120,7 +122,9 @@ public class LoggingMiddlewareTest {
   @Test
   public void testLongInputIsTruncated() {
     String longInput = String.join("", Collections.nCopies(500, "x"));
-    AgentContext longCtx = new AgentContext(longInput, new ConversationMemory(), ApprovalMode.YOLO);
+    ConversationMemory longMemory = new ConversationMemory();
+    longMemory.addUserMessage(longInput);
+    AgentContext longCtx = new AgentContext(longMemory, ApprovalMode.AUTO_APPROVE);
     // Should not throw; truncation is internal
     middleware.onAgentStart(longCtx);
   }

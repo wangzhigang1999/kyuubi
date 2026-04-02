@@ -18,7 +18,7 @@
 package org.apache.kyuubi.engine.dataagent
 
 import java.io.File
-import java.nio.file.{Files, Paths}
+import java.nio.file.Paths
 
 import scala.collection.mutable
 
@@ -28,7 +28,7 @@ import org.apache.commons.lang3.StringUtils
 import org.apache.kyuubi.{Logging, SCALA_COMPILE_VERSION, Utils}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
-import org.apache.kyuubi.config.KyuubiReservedKeys.KYUUBI_SESSION_USER_KEY
+import org.apache.kyuubi.config.KyuubiReservedKeys.{KYUUBI_ENGINE_ID, KYUUBI_SESSION_USER_KEY}
 import org.apache.kyuubi.engine.ProcBuilder
 import org.apache.kyuubi.operation.log.OperationLog
 import org.apache.kyuubi.util.command.CommandLineUtils._
@@ -61,16 +61,19 @@ class DataAgentProcessBuilder(
     buffer += s"-Xmx$memory"
 
     val javaOptions = conf.get(ENGINE_DATA_AGENT_JAVA_OPTIONS).filter(StringUtils.isNotBlank(_))
-    javaOptions.foreach(buffer += _)
+    if (javaOptions.isDefined) {
+      buffer ++= parseOptionString(javaOptions.get)
+    }
 
     val classpathEntries = new mutable.LinkedHashSet[String]
     mainResource.foreach(classpathEntries.add)
     mainResource.foreach { path =>
       val parent = Paths.get(path).getParent
-      val devDepDir = parent
-        .resolve(s"scala-$SCALA_COMPILE_VERSION")
-        .resolve("jars")
-      if (Files.exists(devDepDir)) {
+      if (Utils.isTesting) {
+        // add dev classpath
+        val devDepDir = parent
+          .resolve(s"scala-$SCALA_COMPILE_VERSION")
+          .resolve("jars")
         classpathEntries.add(s"$devDepDir${File.separator}*")
       } else {
         classpathEntries.add(s"$parent${File.separator}*")
@@ -84,6 +87,7 @@ class DataAgentProcessBuilder(
     buffer += mainClass
 
     buffer ++= confKeyValue(KYUUBI_SESSION_USER_KEY, proxyUser)
+    buffer ++= confKeyValue(KYUUBI_ENGINE_ID, engineRefId)
 
     buffer ++= confKeyValues(conf.getAll)
 

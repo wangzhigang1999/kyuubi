@@ -24,11 +24,14 @@ package org.apache.kyuubi.engine.dataagent.runtime.event;
  */
 public enum EventType {
 
+  /** The agent has started processing a user query. */
+  AGENT_START("agent_start"),
+
   /** A new ReAct iteration is starting. */
   STEP_START("step_start"),
 
   /** A single token or chunk from the LLM streaming response. */
-  CONTENT_DELTA("content"),
+  CONTENT_DELTA("content_delta"),
 
   /** The complete LLM output for one reasoning step. */
   CONTENT_COMPLETE("content_complete"),
@@ -39,11 +42,14 @@ public enum EventType {
   /** The result of a tool invocation. */
   TOOL_RESULT("tool_result"),
 
+  /** A ReAct iteration has completed. */
+  STEP_END("step_end"),
+
   /** An error occurred during agent execution. */
   ERROR("error"),
 
   /** The agent has finished its analysis. */
-  FINISH("done");
+  AGENT_FINISH("agent_finish");
 
   private final String sseEventName;
 

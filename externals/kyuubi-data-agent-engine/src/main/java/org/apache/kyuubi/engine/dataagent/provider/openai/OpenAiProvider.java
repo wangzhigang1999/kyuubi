@@ -20,6 +20,7 @@ package org.apache.kyuubi.engine.dataagent.provider.openai;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.zaxxer.hikari.HikariDataSource;
+import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import javax.sql.DataSource;
@@ -27,13 +28,14 @@ import org.apache.kyuubi.config.KyuubiConf;
 import org.apache.kyuubi.engine.dataagent.datasource.DataSourceFactory;
 import org.apache.kyuubi.engine.dataagent.prompt.SystemPromptBuilder;
 import org.apache.kyuubi.engine.dataagent.provider.DataAgentProvider;
-import org.apache.kyuubi.engine.dataagent.runtime.ApprovalMode;
+import org.apache.kyuubi.engine.dataagent.provider.ProviderRunRequest;
+import org.apache.kyuubi.engine.dataagent.runtime.AgentRunRequest;
 import org.apache.kyuubi.engine.dataagent.runtime.ConversationMemory;
 import org.apache.kyuubi.engine.dataagent.runtime.ReactAgent;
 import org.apache.kyuubi.engine.dataagent.runtime.event.AgentError;
 import org.apache.kyuubi.engine.dataagent.runtime.event.AgentEvent;
+import org.apache.kyuubi.engine.dataagent.runtime.middleware.LoggingMiddleware;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
-import org.apache.kyuubi.engine.dataagent.tool.schema.SchemaInspectTool;
 import org.apache.kyuubi.engine.dataagent.tool.sql.SqlQueryTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +43,11 @@ import org.slf4j.LoggerFactory;
 /**
  * An OpenAI-compatible provider that wires up the full ReactAgent with streaming LLM, tools, and
  * middleware pipeline. Uses the official OpenAI Java SDK.
+ *
+ * <p>The ReactAgent, DataSource, and ToolRegistry are shared across all sessions within this engine
+ * instance. Each session only maintains its own {@link ConversationMemory}. This works because each
+ * engine is bound to one user + one datasource (via USER share level + subdomain isolation), so all
+ * sessions within the engine naturally share the same data connection.
  */
 public class OpenAiProvider implements DataAgentProvider {
 
@@ -60,7 +67,13 @@ public class OpenAiProvider implements DataAgentProvider {
     String baseUrl = conf.get(KyuubiConf.ENGINE_DATA_AGENT_LLM_API_URL());
     String modelName = conf.get(KyuubiConf.ENGINE_DATA_AGENT_LLM_MODEL());
 
-    OpenAIClient client = OpenAIOkHttpClient.builder().apiKey(apiKey).baseUrl(baseUrl).build();
+    OpenAIClient client =
+        OpenAIOkHttpClient.builder()
+            .apiKey(apiKey)
+            .baseUrl(baseUrl)
+            .maxRetries(3)
+            .timeout(Duration.ofSeconds(120))
+            .build();
 
     int maxIterations = (int) conf.get(KyuubiConf.ENGINE_DATA_AGENT_MAX_ITERATIONS());
 
@@ -72,9 +85,9 @@ public class OpenAiProvider implements DataAgentProvider {
       scala.Option<String> jdbcUrlOpt = conf.get(KyuubiConf.ENGINE_DATA_AGENT_JDBC_URL());
       if (jdbcUrlOpt.isDefined()) {
         String jdbcUrl = jdbcUrlOpt.get();
-        LOG.info("Data Agent JDBC URL: {}", jdbcUrl);
+        LOG.info(
+            "Data Agent JDBC URL configured ({})", jdbcUrl.replaceAll("//.*@", "//<redacted>@"));
         ds = DataSourceFactory.create(jdbcUrl);
-        toolRegistry.register(new SchemaInspectTool(ds));
         toolRegistry.register(new SqlQueryTool(ds));
         promptBuilder.jdbcUrl(jdbcUrl);
       }
@@ -84,6 +97,7 @@ public class OpenAiProvider implements DataAgentProvider {
               .client(client)
               .modelName(modelName)
               .toolRegistry(toolRegistry)
+              .addMiddleware(new LoggingMiddleware())
               .maxIterations(maxIterations)
               .systemPrompt(promptBuilder.build())
               .build();
@@ -104,14 +118,17 @@ public class OpenAiProvider implements DataAgentProvider {
   }
 
   @Override
-  public void run(String sessionId, String question, Consumer<AgentEvent> onEvent) {
+  public void run(String sessionId, ProviderRunRequest request, Consumer<AgentEvent> onEvent) {
     ConversationMemory memory = sessions.get(sessionId);
     if (memory == null) {
       onEvent.accept(new AgentError("Session not found. Please reconnect."));
       return;
     }
 
-    agent.run(question, memory, ApprovalMode.YOLO, onEvent);
+    agent.run(
+        new AgentRunRequest(request.getQuestion()).modelName(request.getModelName()),
+        memory,
+        onEvent);
   }
 
   @Override
@@ -122,6 +139,11 @@ public class OpenAiProvider implements DataAgentProvider {
 
   @Override
   public void stop() {
+    try {
+      agent.close();
+    } catch (Exception e) {
+      LOG.warn("Error closing ReactAgent", e);
+    }
     if (dataSource instanceof HikariDataSource) {
       ((HikariDataSource) dataSource).close();
       LOG.info("Closed Data Agent connection pool");

@@ -25,7 +25,7 @@ public final class AgentFinish extends AgentEvent {
   private final long totalTokens;
 
   public AgentFinish(int totalSteps, long promptTokens, long completionTokens, long totalTokens) {
-    super(EventType.FINISH);
+    super(EventType.AGENT_FINISH);
     this.totalSteps = totalSteps;
     this.promptTokens = promptTokens;
     this.completionTokens = completionTokens;

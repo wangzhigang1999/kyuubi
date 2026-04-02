@@ -25,21 +25,26 @@ import org.apache.kyuubi.operation.HiveJDBCTestHelper
 
 /**
  * End-to-end test for the Data Agent engine.
- * Full pipeline: JDBC Client → Kyuubi Thrift → DataAgentEngine → LLM → Tools → SQLite → Results
+ * Full pipeline: JDBC Client -> Kyuubi Thrift -> DataAgentEngine
+ * -> LLM -> Tools -> SQLite -> Results
  *
  * Requires DASHSCOPE_API_KEY environment variable.
  */
 class DataAgentE2ESuite extends HiveJDBCTestHelper with WithDataAgentEngine {
 
   private val apiKey = sys.env.getOrElse("DASHSCOPE_API_KEY", "")
+  private val apiUrl = sys.env.getOrElse(
+    "DASHSCOPE_API_URL",
+    "https://dashscope.aliyuncs.com/compatible-mode/v1")
+  private val modelName = sys.env.getOrElse("DASHSCOPE_MODEL", "qwen-plus")
   private val dbPath =
-    s"${System.getProperty("java.io.tmpdir")}/dataagent_e2e_test.db"
+    s"${System.getProperty("java.io.tmpdir")}/dataagent_e2e_test_${java.util.UUID.randomUUID()}.db"
 
   override def withKyuubiConf: Map[String, String] = Map(
     ENGINE_DATA_AGENT_PROVIDER.key -> "GPT",
     ENGINE_DATA_AGENT_LLM_API_KEY.key -> apiKey,
-    ENGINE_DATA_AGENT_LLM_API_URL.key -> "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    ENGINE_DATA_AGENT_LLM_MODEL.key -> "qwen3.5-plus-2026-02-15",
+    ENGINE_DATA_AGENT_LLM_API_URL.key -> apiUrl,
+    ENGINE_DATA_AGENT_LLM_MODEL.key -> modelName,
     ENGINE_DATA_AGENT_MAX_ITERATIONS.key -> "10",
     ENGINE_DATA_AGENT_JDBC_URL.key -> s"jdbc:sqlite:$dbPath")
 

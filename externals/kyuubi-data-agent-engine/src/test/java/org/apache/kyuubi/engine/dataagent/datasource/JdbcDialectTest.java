@@ -24,50 +24,44 @@ import org.junit.Test;
 public class JdbcDialectTest {
 
   @Test
-  public void testSqlite() {
-    JdbcDialect d = JdbcDialect.fromUrl("jdbc:sqlite:/tmp/test.db");
-    assertEquals(JdbcDialect.SQLITE, d);
-    assertEquals("sqlite", d.dialectName());
-    assertNull(d.engineName());
-  }
-
-  @Test
   public void testSparkViaHive2() {
     JdbcDialect d = JdbcDialect.fromUrl("jdbc:hive2://localhost:10009/default");
-    assertEquals(JdbcDialect.SPARK, d);
-    assertEquals("spark", d.dialectName());
-    assertEquals("spark", d.engineName());
+    assertNotNull(d);
+    assertEquals("spark", d.datasourceName());
   }
 
   @Test
   public void testSparkViaSpark() {
     JdbcDialect d = JdbcDialect.fromUrl("jdbc:spark://localhost:10009/default");
-    assertEquals(JdbcDialect.SPARK, d);
-  }
-
-  @Test
-  public void testTrino() {
-    JdbcDialect d = JdbcDialect.fromUrl("jdbc:trino://localhost:8080/hive/default");
-    assertEquals(JdbcDialect.TRINO, d);
-    assertEquals("trino", d.dialectName());
-    assertEquals("trino", d.engineName());
-  }
-
-  @Test
-  public void testPresto() {
-    JdbcDialect d = JdbcDialect.fromUrl("jdbc:presto://localhost:8080/hive/default");
-    assertEquals(JdbcDialect.TRINO, d);
+    assertNotNull(d);
+    assertEquals("spark", d.datasourceName());
   }
 
   @Test
   public void testCaseInsensitive() {
-    assertEquals(JdbcDialect.SQLITE, JdbcDialect.fromUrl("JDBC:SQLITE:/tmp/test.db"));
-    assertEquals(JdbcDialect.SPARK, JdbcDialect.fromUrl("JDBC:HIVE2://localhost:10009"));
+    assertNotNull(JdbcDialect.fromUrl("JDBC:HIVE2://localhost:10009"));
+    assertNotNull(JdbcDialect.fromUrl("JDBC:SPARK://localhost:10009"));
+  }
+
+  @Test
+  public void testQuoteIdentifierBacktick() {
+    JdbcDialect spark = JdbcDialect.fromUrl("jdbc:hive2://localhost:10009");
+    assertEquals("`my_table`", spark.quoteIdentifier("my_table"));
+    assertEquals("` ``inject`` `", spark.quoteIdentifier(" `inject` "));
+  }
+
+  @Test
+  public void testRandomDistinctSampleColumn() {
+    JdbcDialect spark = JdbcDialect.fromUrl("jdbc:hive2://localhost:10009");
+    String sql = spark.randomDistinctSampleColumn("`db`.`table`", "`col`", 10, 50);
+    assertEquals(
+        "SELECT DISTINCT `col` FROM `db`.`table`"
+            + " TABLESAMPLE(10 PERCENT) WHERE `col` IS NOT NULL LIMIT 50",
+        sql);
   }
 
   @Test
   public void testUnknownReturnsNull() {
-    assertNull(JdbcDialect.fromUrl("jdbc:mysql://localhost/db"));
     assertNull(JdbcDialect.fromUrl("not-a-jdbc-url"));
   }
 

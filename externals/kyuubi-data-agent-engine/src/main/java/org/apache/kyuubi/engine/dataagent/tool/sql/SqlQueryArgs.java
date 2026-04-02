@@ -24,9 +24,10 @@ import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 public class SqlQueryArgs {
 
   @JsonProperty(required = true)
-  @JsonPropertyDescription("A valid SQL SELECT query. Only SELECT is allowed.")
+  @JsonPropertyDescription(
+      "A SQL statement to execute. Supports SELECT, SHOW, DESCRIBE, and other statements.")
   public String sql;
 
   @JsonPropertyDescription("Maximum number of rows to return (default: 100)")
-  public int maxRows = 100;
+  public Integer maxRows = 100;
 }

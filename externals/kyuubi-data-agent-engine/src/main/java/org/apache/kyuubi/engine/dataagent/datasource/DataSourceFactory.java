@@ -30,7 +30,7 @@ public final class DataSourceFactory {
 
   /**
    * Create a pooled DataSource from a JDBC URL. Supports any JDBC driver available on the
-   * classpath.
+   * classpath. For authenticated databases, credentials can be embedded in the URL.
    *
    * @param jdbcUrl the JDBC connection URL
    * @return a HikariCP-backed DataSource

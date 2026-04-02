@@ -23,7 +23,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import java.util.List;
 import java.util.Map;
-import org.apache.kyuubi.engine.dataagent.tool.schema.SchemaInspectArgs;
 import org.apache.kyuubi.engine.dataagent.tool.sql.SqlQueryArgs;
 import org.junit.Test;
 
@@ -56,22 +55,6 @@ public class ToolSchemaGeneratorTest {
     assertNotNull(required);
     assertTrue(required.contains("sql"));
     assertFalse("maxRows should not be required", required.contains("maxRows"));
-  }
-
-  @Test
-  public void testSchemaInspectArgsSchema() {
-    Map<String, Object> schema = ToolSchemaGenerator.generateSchema(SchemaInspectArgs.class);
-    assertEquals("object", schema.get("type"));
-
-    @SuppressWarnings("unchecked")
-    Map<String, Object> props = (Map<String, Object>) schema.get("properties");
-    assertNotNull(props);
-    assertTrue(props.containsKey("tableName"));
-
-    @SuppressWarnings("unchecked")
-    Map<String, Object> tableNameProp = (Map<String, Object>) props.get("tableName");
-    assertEquals("string", tableNameProp.get("type"));
-    assertNotNull("tableName should have a description", tableNameProp.get("description"));
   }
 
   // --- Synthetic test classes to verify type mapping ---

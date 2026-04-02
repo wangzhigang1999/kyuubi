@@ -16,11 +16,10 @@
  */
 package org.apache.kyuubi.engine.dataagent
 
-import DataAgentEngine.currentEngine
-
 import org.apache.kyuubi.{Logging, Utils}
 import org.apache.kyuubi.Utils.{addShutdownHook, JDBC_ENGINE_SHUTDOWN_PRIORITY}
 import org.apache.kyuubi.config.KyuubiConf
+import org.apache.kyuubi.engine.dataagent.DataAgentEngine.currentEngine
 import org.apache.kyuubi.ha.HighAvailabilityConf.HA_ZK_CONN_RETRY_POLICY
 import org.apache.kyuubi.ha.client.RetryPolicies
 import org.apache.kyuubi.service.Serverable
@@ -34,6 +33,7 @@ class DataAgentEngine extends Serverable("DataAgentEngine") {
   override def start(): Unit = {
     super.start()
     backendService.sessionManager.startTerminatingChecker(() => {
+      selfExited = true
       currentEngine.foreach(_.stop())
     })
   }
@@ -45,7 +45,7 @@ object DataAgentEngine extends Logging {
 
   val kyuubiConf: KyuubiConf = KyuubiConf()
 
-  var currentEngine: Option[DataAgentEngine] = None
+  @volatile var currentEngine: Option[DataAgentEngine] = None
 
   def startEngine(): Unit = {
     currentEngine = Some(new DataAgentEngine())

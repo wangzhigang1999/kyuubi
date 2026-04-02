@@ -24,27 +24,23 @@ import java.sql.Connection;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
-import org.apache.kyuubi.engine.dataagent.tool.schema.SchemaInspectArgs;
-import org.apache.kyuubi.engine.dataagent.tool.schema.SchemaInspectTool;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.sqlite.SQLiteDataSource;
 
-/** Real SQLite tests for SQL injection prevention and safety checks. No mocks. */
+/** Real SQLite tests for SqlQueryTool with all restrictions removed. */
 public class SqlSecurityTest {
 
   private SQLiteDataSource ds;
   private SqlQueryTool queryTool;
-  private SchemaInspectTool schemaTool;
   private final List<File> tempFiles = new ArrayList<>();
 
   @Before
   public void setUp() {
     ds = createDataSource();
     setupTestData(ds);
-    queryTool = new SqlQueryTool(ds);
-    schemaTool = new SchemaInspectTool(ds);
+    queryTool = new SqlQueryTool(ds, 30, false);
   }
 
   @After
@@ -52,97 +48,15 @@ public class SqlSecurityTest {
     tempFiles.forEach(File::delete);
   }
 
-  // --- SqlQueryTool: comment-based injection ---
+  // --- Basic SQL execution ---
 
   @Test
-  public void testRejectsSingleLineCommentInjection() {
+  public void testAllowsValidSelect() {
     SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "-- DROP TABLE users\nSELECT * FROM users";
-    // After stripping comments, this becomes "SELECT * FROM users" which is fine
+    args.sql = "SELECT name, age FROM users WHERE age > 25 ORDER BY age";
     String result = queryTool.execute(args);
-    assertTrue("Valid SELECT after comment stripping should succeed", result.contains("row(s)"));
-  }
-
-  @Test
-  public void testRejectsMultiLineCommentWithDangerousKeyword() {
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "/* hello */ DROP TABLE users";
-    String result = queryTool.execute(args);
-    assertTrue("DROP should be rejected", result.startsWith("Error:"));
-  }
-
-  @Test
-  public void testRejectsCommentHiddenDropAfterSelect() {
-    // Even if it starts with SELECT, dangerous keywords in body are rejected
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "SELECT 1; DROP TABLE users";
-    String result = queryTool.execute(args);
-    assertTrue("Semicolon should be rejected", result.contains("Error:"));
-  }
-
-  @Test
-  public void testRejectsStackedQueries() {
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "SELECT 1; DELETE FROM users";
-    String result = queryTool.execute(args);
-    assertTrue("Stacked queries should be rejected", result.startsWith("Error:"));
-  }
-
-  @Test
-  public void testAllowsSemicolonInsideStringLiteral() {
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "SELECT name FROM users WHERE name = 'foo;bar'";
-    String result = queryTool.execute(args);
-    // Should not be rejected — semicolon is inside a string literal
-    assertFalse("Semicolon in string literal should be allowed", result.startsWith("Error:"));
-  }
-
-  @Test
-  public void testRejectsInsert() {
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "INSERT INTO users VALUES (99, 'hacker', 99)";
-    String result = queryTool.execute(args);
-    assertTrue(result.startsWith("Error:"));
-  }
-
-  @Test
-  public void testRejectsUpdate() {
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "UPDATE users SET name = 'hacked' WHERE id = 1";
-    String result = queryTool.execute(args);
-    assertTrue(result.startsWith("Error:"));
-  }
-
-  @Test
-  public void testRejectsDelete() {
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "DELETE FROM users";
-    String result = queryTool.execute(args);
-    assertTrue(result.startsWith("Error:"));
-  }
-
-  @Test
-  public void testRejectsTruncate() {
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "TRUNCATE TABLE users";
-    String result = queryTool.execute(args);
-    assertTrue(result.startsWith("Error:"));
-  }
-
-  @Test
-  public void testRejectsAlter() {
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "ALTER TABLE users ADD COLUMN pwned TEXT";
-    String result = queryTool.execute(args);
-    assertTrue(result.startsWith("Error:"));
-  }
-
-  @Test
-  public void testRejectsDangerousKeywordInSubquery() {
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "SELECT * FROM (DELETE FROM users RETURNING *)";
-    String result = queryTool.execute(args);
-    assertTrue("DELETE in subquery should be rejected", result.startsWith("Error:"));
+    assertTrue(result.contains("Bob"));
+    assertTrue(result.contains("Charlie"));
   }
 
   @Test
@@ -154,13 +68,54 @@ public class SqlSecurityTest {
   }
 
   @Test
-  public void testAllowsValidSelect() {
+  public void testAllowsSchemaExploration() {
     SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "SELECT name, age FROM users WHERE age > 25 ORDER BY age";
+    args.sql = "SELECT name FROM sqlite_master WHERE type='table'";
     String result = queryTool.execute(args);
-    assertTrue(result.contains("Bob"));
-    assertTrue(result.contains("Charlie"));
+    assertTrue(result.contains("users"));
   }
+
+  @Test
+  public void testAllowsPragma() {
+    SqlQueryArgs args = new SqlQueryArgs();
+    args.sql = "PRAGMA table_info(users)";
+    String result = queryTool.execute(args);
+    assertTrue(result.contains("name"));
+    assertTrue(result.contains("age"));
+  }
+
+  // --- All statement types are now allowed ---
+
+  @Test
+  public void testAllowsInsert() {
+    SqlQueryArgs args = new SqlQueryArgs();
+    args.sql = "INSERT INTO users VALUES (99, 'NewUser', 40)";
+    String result = queryTool.execute(args);
+    assertTrue(result.contains("1 row(s) affected"));
+
+    // Verify the insert
+    args.sql = "SELECT name FROM users WHERE id = 99";
+    result = queryTool.execute(args);
+    assertTrue(result.contains("NewUser"));
+  }
+
+  @Test
+  public void testAllowsUpdate() {
+    SqlQueryArgs args = new SqlQueryArgs();
+    args.sql = "UPDATE users SET name = 'Updated' WHERE id = 1";
+    String result = queryTool.execute(args);
+    assertTrue(result.contains("1 row(s) affected"));
+  }
+
+  @Test
+  public void testAllowsDelete() {
+    SqlQueryArgs args = new SqlQueryArgs();
+    args.sql = "DELETE FROM users WHERE id = 1";
+    String result = queryTool.execute(args);
+    assertTrue(result.contains("1 row(s) affected"));
+  }
+
+  // --- Edge cases ---
 
   @Test
   public void testRejectsEmptySql() {
@@ -178,15 +133,7 @@ public class SqlSecurityTest {
     assertTrue(result.startsWith("Error:"));
   }
 
-  @Test
-  public void testRejectsCommentOnlySql() {
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "-- just a comment";
-    String result = queryTool.execute(args);
-    assertTrue(result.startsWith("Error:"));
-  }
-
-  // --- SqlQueryTool: markdown stripping ---
+  // --- Markdown stripping ---
 
   @Test
   public void testStripsMarkdownCodeFenceSql() {
@@ -204,115 +151,18 @@ public class SqlSecurityTest {
     assertTrue(result.contains("3"));
   }
 
-  // --- SqlQueryTool: stripComments unit tests ---
-
-  @Test
-  public void testStripSingleLineComment() {
-    assertEquals("SELECT 1 ", SqlQueryTool.stripComments("SELECT 1 -- comment"));
-  }
-
-  @Test
-  public void testStripMultiLineComment() {
-    assertEquals("SELECT  1", SqlQueryTool.stripComments("SELECT /* block */ 1"));
-  }
-
-  @Test
-  public void testPreservesCommentInsideStringLiteral() {
-    String sql = "SELECT '-- not a comment' FROM t";
-    assertEquals(sql, SqlQueryTool.stripComments(sql));
-  }
-
-  @Test
-  public void testSemicolonDetection() {
-    assertTrue(SqlQueryTool.containsSemicolon("SELECT 1; DROP TABLE"));
-    assertFalse(SqlQueryTool.containsSemicolon("SELECT 'a;b' FROM t"));
-    assertFalse(SqlQueryTool.containsSemicolon("SELECT 1"));
-  }
-
-  // --- SchemaInspectTool: SQL injection prevention ---
-
-  @Test
-  public void testSchemaInspectRejectsNonexistentTable() {
-    SchemaInspectArgs args = new SchemaInspectArgs();
-    args.tableName = "nonexistent_table";
-    String result = schemaTool.execute(args);
-    assertTrue("Should report table not found", result.contains("does not exist"));
-  }
-
-  @Test
-  public void testSchemaInspectRejectsInjectionAttempt() {
-    SchemaInspectArgs args = new SchemaInspectArgs();
-    args.tableName = "users; DROP TABLE users--";
-    String result = schemaTool.execute(args);
-    assertTrue(
-        "Injection attempt should fail with 'does not exist'", result.contains("does not exist"));
-
-    // Verify the users table still exists and has data
-    SqlQueryArgs queryArgs = new SqlQueryArgs();
-    queryArgs.sql = "SELECT COUNT(*) FROM users";
-    String queryResult = queryTool.execute(queryArgs);
-    assertTrue("users table should still exist with data", queryResult.contains("3"));
-  }
-
-  @Test
-  public void testSchemaInspectRejectsQuoteInjection() {
-    SchemaInspectArgs args = new SchemaInspectArgs();
-    args.tableName = "users\" OR 1=1--";
-    String result = schemaTool.execute(args);
-    assertTrue(result.contains("does not exist"));
-  }
-
-  @Test
-  public void testSchemaInspectValidTable() {
-    SchemaInspectArgs args = new SchemaInspectArgs();
-    args.tableName = "users";
-    String result = schemaTool.execute(args);
-    assertTrue(result.contains("Table: users"));
-    assertTrue(result.contains("name"));
-    assertTrue(result.contains("Sample data"));
-  }
-
-  @Test
-  public void testSchemaInspectListTables() {
-    SchemaInspectArgs args = new SchemaInspectArgs();
-    String result = schemaTool.execute(args);
-    assertTrue(result.contains("users"));
-  }
-
-  @Test
-  public void testSchemaInspectNullValues() {
-    // Insert a row with NULL to verify NULL handling
-    try (Connection conn = ds.getConnection();
-        Statement stmt = conn.createStatement()) {
-      stmt.execute("INSERT INTO users VALUES (4, NULL, NULL)");
-    } catch (Exception e) {
-      throw new RuntimeException(e);
-    }
-
-    SchemaInspectArgs args = new SchemaInspectArgs();
-    args.tableName = "users";
-    String result = schemaTool.execute(args);
-    // Should not throw, nulls handled gracefully
-    assertNotNull(result);
-    assertTrue(result.contains("Table: users"));
-  }
-
   // --- Error message format ---
 
   @Test
   public void testErrorMessagesStartWithError() {
-    // All error messages from tools should start with "Error:"
-    SqlQueryArgs dropArgs = new SqlQueryArgs();
-    dropArgs.sql = "DROP TABLE users";
-    assertTrue(queryTool.execute(dropArgs).startsWith("Error:"));
-
     SqlQueryArgs emptyArgs = new SqlQueryArgs();
     emptyArgs.sql = "";
     assertTrue(queryTool.execute(emptyArgs).startsWith("Error:"));
 
-    SchemaInspectArgs badTable = new SchemaInspectArgs();
-    badTable.tableName = "nonexistent";
-    assertTrue(schemaTool.execute(badTable).startsWith("Error:"));
+    // Invalid SQL should return database error
+    SqlQueryArgs badArgs = new SqlQueryArgs();
+    badArgs.sql = "SELECT * FROM nonexistent_table";
+    assertTrue(queryTool.execute(badArgs).startsWith("Error:"));
   }
 
   // --- Helpers ---

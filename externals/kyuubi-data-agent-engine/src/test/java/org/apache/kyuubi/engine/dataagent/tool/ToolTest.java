@@ -30,8 +30,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import org.apache.kyuubi.engine.dataagent.tool.schema.SchemaInspectArgs;
-import org.apache.kyuubi.engine.dataagent.tool.schema.SchemaInspectTool;
 import org.apache.kyuubi.engine.dataagent.tool.sql.SqlQueryArgs;
 import org.apache.kyuubi.engine.dataagent.tool.sql.SqlQueryTool;
 import org.junit.After;
@@ -55,26 +53,14 @@ public class ToolTest {
     SqlQueryArgs args =
         JSON.readValue("{\"sql\": \"SELECT 1\", \"maxRows\": 50}", SqlQueryArgs.class);
     assertEquals("SELECT 1", args.sql);
-    assertEquals(50, args.maxRows);
+    assertEquals(Integer.valueOf(50), args.maxRows);
   }
 
   @Test
   public void testSqlQueryArgsUsesDefaultMaxRows() throws Exception {
     SqlQueryArgs args = JSON.readValue("{\"sql\": \"SELECT 1\"}", SqlQueryArgs.class);
     assertEquals("SELECT 1", args.sql);
-    assertEquals(100, args.maxRows);
-  }
-
-  @Test
-  public void testSchemaInspectArgsDefaultTableName() throws Exception {
-    SchemaInspectArgs args = JSON.readValue("{}", SchemaInspectArgs.class);
-    assertEquals("", args.tableName);
-  }
-
-  @Test
-  public void testSchemaInspectArgsExplicitTableName() throws Exception {
-    SchemaInspectArgs args = JSON.readValue("{\"tableName\": \"users\"}", SchemaInspectArgs.class);
-    assertEquals("users", args.tableName);
+    assertEquals(Integer.valueOf(100), args.maxRows);
   }
 
   // --- ToolSchemaGenerator ---
@@ -100,16 +86,8 @@ public class ToolTest {
   public void testSqlQueryToolMetadata() {
     SqlQueryTool tool = new SqlQueryTool(createDataSource());
     assertEquals("sql_query", tool.name());
-    assertTrue(tool.description().contains("SELECT"));
+    assertTrue(tool.description().contains("SQL"));
     assertEquals(SqlQueryArgs.class, tool.argsType());
-  }
-
-  @Test
-  public void testSchemaInspectToolMetadata() {
-    SchemaInspectTool tool = new SchemaInspectTool(createDataSource());
-    assertEquals("describe_schema", tool.name());
-    assertTrue(tool.description().contains("schema"));
-    assertEquals(SchemaInspectArgs.class, tool.argsType());
   }
 
   // --- ToolRegistry ---
@@ -118,7 +96,6 @@ public class ToolTest {
   public void testRegistryBuildsChatCompletionToolSpecs() {
     SQLiteDataSource ds = createDataSource();
     ToolRegistry registry = new ToolRegistry();
-    registry.register(new SchemaInspectTool(ds));
     registry.register(new SqlQueryTool(ds));
     assertFalse(registry.isEmpty());
 
@@ -128,11 +105,10 @@ public class ToolTest {
     ChatCompletionCreateParams params = builder.build();
 
     List<ChatCompletionTool> tools = params.tools().orElse(Collections.emptyList());
-    assertEquals(2, tools.size());
+    assertEquals(1, tools.size());
 
     List<String> names = new ArrayList<>();
     tools.forEach(t -> names.add(t.asFunction().function().name()));
-    assertTrue("Missing describe_schema", names.contains("describe_schema"));
     assertTrue("Missing sql_query", names.contains("sql_query"));
   }
 
@@ -174,11 +150,22 @@ public class ToolTest {
   }
 
   @Test
-  public void testSqlQueryToolRejectsNonSelect() {
-    SqlQueryTool tool = new SqlQueryTool(createDataSource());
+  public void testSqlQueryToolExecutesShowAndDescribe() {
+    SQLiteDataSource ds = createDataSource();
+    setupTestTable(ds);
+    SqlQueryTool tool = new SqlQueryTool(ds);
+
+    // SQLite schema exploration
     SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "DROP TABLE users";
-    assertTrue(tool.execute(args).startsWith("Error: Only SELECT"));
+    args.sql = "SELECT name FROM sqlite_master WHERE type='table'";
+    String result = tool.execute(args);
+    assertTrue(result.contains("users"));
+
+    // PRAGMA table_info
+    args.sql = "PRAGMA table_info(users)";
+    result = tool.execute(args);
+    assertTrue(result.contains("name"));
+    assertTrue(result.contains("age"));
   }
 
   @Test
@@ -189,28 +176,6 @@ public class ToolTest {
     SqlQueryArgs args = new SqlQueryArgs();
     args.sql = "```sql\nSELECT COUNT(*) FROM users\n```";
     assertTrue(tool.execute(args).contains("3"));
-  }
-
-  @Test
-  public void testSchemaInspectToolListsTables() {
-    SQLiteDataSource ds = createDataSource();
-    setupTestTable(ds);
-    SchemaInspectTool tool = new SchemaInspectTool(ds);
-    SchemaInspectArgs args = new SchemaInspectArgs();
-    assertTrue(tool.execute(args).contains("users"));
-  }
-
-  @Test
-  public void testSchemaInspectToolDescribesTable() {
-    SQLiteDataSource ds = createDataSource();
-    setupTestTable(ds);
-    SchemaInspectTool tool = new SchemaInspectTool(ds);
-    SchemaInspectArgs args = new SchemaInspectArgs();
-    args.tableName = "users";
-    String result = tool.execute(args);
-    assertTrue(result.contains("Table: users"));
-    assertTrue(result.contains("name"));
-    assertTrue(result.contains("Sample data"));
   }
 
   // --- DataSource isolation ---
@@ -224,23 +189,19 @@ public class ToolTest {
 
     ToolRegistry reg1 = new ToolRegistry();
     reg1.register(new SqlQueryTool(ds1));
-    reg1.register(new SchemaInspectTool(ds1));
 
     ToolRegistry reg2 = new ToolRegistry();
     reg2.register(new SqlQueryTool(ds2));
-    reg2.register(new SchemaInspectTool(ds2));
 
     assertTrue(
         reg1.executeTool("sql_query", "{\"sql\": \"SELECT x FROM t1\"}").contains("from-ds1"));
-    String schema1 = reg1.executeTool("describe_schema", "{}");
-    assertTrue(schema1.contains("t1"));
-    assertFalse(schema1.contains("t2"));
-
     assertTrue(
         reg2.executeTool("sql_query", "{\"sql\": \"SELECT y FROM t2\"}").contains("from-ds2"));
-    String schema2 = reg2.executeTool("describe_schema", "{}");
-    assertTrue(schema2.contains("t2"));
-    assertFalse(schema2.contains("t1"));
+
+    // ds1 does not have t2
+    assertTrue(reg1.executeTool("sql_query", "{\"sql\": \"SELECT * FROM t2\"}").contains("Error:"));
+    // ds2 does not have t1
+    assertTrue(reg2.executeTool("sql_query", "{\"sql\": \"SELECT * FROM t1\"}").contains("Error:"));
   }
 
   // --- End-to-end roundtrip ---
@@ -250,7 +211,6 @@ public class ToolTest {
     SQLiteDataSource ds = createDataSource();
     setupTestTable(ds);
     ToolRegistry registry = new ToolRegistry();
-    registry.register(new SchemaInspectTool(ds));
     registry.register(new SqlQueryTool(ds));
 
     // Schema generation works
@@ -259,10 +219,13 @@ public class ToolTest {
     registry.addToolsTo(builder);
     assertTrue(builder.build().tools().isPresent());
 
-    // Simulated tool calls
-    String schemaResult = registry.executeTool("describe_schema", "{\"tableName\": \"users\"}");
-    assertTrue(schemaResult.contains("Table: users"));
+    // Schema exploration via SQL
+    String schemaResult =
+        registry.executeTool(
+            "sql_query", "{\"sql\": \"SELECT name FROM sqlite_master WHERE type='table'\"}");
+    assertTrue(schemaResult.contains("users"));
 
+    // Data query
     String queryResult =
         registry.executeTool(
             "sql_query", "{\"sql\": \"SELECT name FROM users WHERE age > 25\", \"maxRows\": 10}");

@@ -16,6 +16,7 @@
  */
 package org.apache.kyuubi.engine.dataagent
 
+import org.apache.kyuubi.config.KyuubiReservedKeys.KYUUBI_ENGINE_ID
 import org.apache.kyuubi.ha.client.{EngineServiceDiscovery, ServiceDiscovery}
 import org.apache.kyuubi.service.{Serverable, Service, TBinaryFrontendService}
 
@@ -28,4 +29,9 @@ class DataAgentTBinaryFrontendService(override val serverable: Serverable)
     } else {
       None
     }
+
+  override def attributes: Map[String, String] = {
+    super.attributes ++ conf.getAll
+      .get(KYUUBI_ENGINE_ID).map(id => Map(KYUUBI_ENGINE_ID -> id)).getOrElse(Map.empty)
+  }
 }

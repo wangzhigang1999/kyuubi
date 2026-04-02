@@ -23,6 +23,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -32,22 +33,21 @@ import org.apache.kyuubi.engine.dataagent.datasource.JdbcDialect;
  * Builder for composing system prompts from Markdown resource sections.
  *
  * <p>Prompt resources live under {@code prompts/} on the classpath as {@code .md} files. The base
- * template supports two placeholders:
+ * template supports one placeholder:
  *
  * <ul>
  *   <li>{@code {{tool_descriptions}}} — replaced by {@link #toolDescriptions(String)}
- *   <li>{@code {{dialect_hints}}} — replaced by {@link #dialect(String)}
  * </ul>
  *
- * <p>Additional sections (engine guidelines, free-form text) are appended after the base.
+ * <p>Datasource-specific sections ({@code prompts/datasource-{name}.md}) and free-form text are
+ * appended after the base.
  *
  * <p>Usage:
  *
  * <pre>{@code
  * String prompt = SystemPromptBuilder.create()
  *     .toolDescriptions(registry.describeTools())
- *     .engine("spark")
- *     .dialect("mysql")
+ *     .datasource("spark")
  *     .section("Only query tables in the public schema.")
  *     .build();
  * }</pre>
@@ -58,7 +58,6 @@ public final class SystemPromptBuilder {
 
   private String base;
   private String toolDescriptions = "";
-  private String dialectHints = "";
   private final List<String> sections = new ArrayList<>();
 
   private SystemPromptBuilder() {
@@ -84,27 +83,13 @@ public final class SystemPromptBuilder {
   }
 
   /**
-   * Add SQL dialect compatibility hints. Loads {@code prompts/dialect-{dialect}.md} from the
-   * classpath and substitutes into the {@code {{dialect_hints}}} placeholder. If the resource does
-   * not exist, the placeholder is removed.
+   * Add datasource-specific guidelines. Loads {@code prompts/datasource-{name}.md} from the
+   * classpath and appends as a section. If the resource does not exist, this call is silently
+   * ignored.
    */
-  public SystemPromptBuilder dialect(String dialect) {
-    if (dialect != null) {
-      String content = loadResourceOrNull("dialect-" + dialect.toLowerCase());
-      if (content != null) {
-        this.dialectHints = content;
-      }
-    }
-    return this;
-  }
-
-  /**
-   * Add engine-specific guidelines. Loads {@code prompts/engine-{engineType}.md} from the
-   * classpath. If the resource does not exist, this call is silently ignored.
-   */
-  public SystemPromptBuilder engine(String engineType) {
-    if (engineType != null) {
-      String content = loadResourceOrNull("engine-" + engineType.toLowerCase());
+  public SystemPromptBuilder datasource(String name) {
+    if (name != null) {
+      String content = loadResourceOrNull("datasource-" + name.toLowerCase());
       if (content != null) {
         sections.add(content);
       }
@@ -113,16 +98,13 @@ public final class SystemPromptBuilder {
   }
 
   /**
-   * Auto-detect dialect and engine from a JDBC URL, then apply both. Equivalent to calling {@link
-   * #dialect(String)} and {@link #engine(String)} with values inferred from the URL.
+   * Auto-detect datasource from a JDBC URL and apply the corresponding prompt section. Equivalent
+   * to calling {@link #datasource(String)} with the name inferred from the URL.
    */
   public SystemPromptBuilder jdbcUrl(String jdbcUrl) {
     JdbcDialect d = JdbcDialect.fromUrl(jdbcUrl);
     if (d != null) {
-      dialect(d.dialectName());
-      if (d.engineName() != null) {
-        engine(d.engineName());
-      }
+      datasource(d.datasourceName());
     }
     return this;
   }
@@ -137,12 +119,10 @@ public final class SystemPromptBuilder {
 
   /** Build the final prompt by resolving placeholders and joining all sections. */
   public String build() {
-    String result = base;
-    result = result.replace("{{tool_descriptions}}", toolDescriptions);
-    result = result.replace("{{dialect_hints}}", dialectHints);
+    String result = base.replace("{{tool_descriptions}}", toolDescriptions);
 
     StringBuilder sb = new StringBuilder(result);
-    sb.append("\n\nToday's date: ").append(LocalDate.now()).append(".");
+    sb.append("\n\nToday's date: ").append(LocalDate.now(ZoneOffset.UTC)).append(".");
     for (String section : sections) {
       sb.append("\n\n").append(section);
     }

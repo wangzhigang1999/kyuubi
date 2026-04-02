@@ -43,13 +43,13 @@ public class ToolRegistry {
   private volatile Map<String, ChatCompletionTool> cachedSpecs;
 
   /** Register a tool. Keyed by {@link AgentTool#name()}. */
-  public ToolRegistry register(AgentTool<?> tool) {
+  public synchronized ToolRegistry register(AgentTool<?> tool) {
     tools.put(tool.name(), tool);
     cachedSpecs = null; // invalidate cache
     return this;
   }
 
-  public boolean isEmpty() {
+  public synchronized boolean isEmpty() {
     return tools.isEmpty();
   }
 
@@ -80,7 +80,7 @@ public class ToolRegistry {
    * @return the result string, or an error message
    */
   @SuppressWarnings("unchecked")
-  public String executeTool(String toolName, String argsJson) {
+  public synchronized String executeTool(String toolName, String argsJson) {
     AgentTool<?> tool = tools.get(toolName);
     if (tool == null) {
       return "Error: unknown tool '" + toolName + "'";

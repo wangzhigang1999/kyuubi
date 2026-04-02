@@ -46,9 +46,9 @@ object SchemaHelper {
     tColumnDesc
   }
 
-  def stringTTableSchema(fieldsName: String*): TTableSchema = {
+  def stringTTableSchema(fieldNames: String*): TTableSchema = {
     val tTableSchema = new TTableSchema()
-    fieldsName.zipWithIndex.foreach { case (f, i) =>
+    fieldNames.zipWithIndex.foreach { case (f, i) =>
       tTableSchema.addToColumns(stringTColumnDesc(f, i))
     }
     tTableSchema

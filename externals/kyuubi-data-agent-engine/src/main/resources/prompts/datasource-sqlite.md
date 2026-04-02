@@ -2,6 +2,13 @@
 
 SQLite differs significantly from MySQL/PostgreSQL. Follow these rules strictly.
 
+### Schema exploration
+
+- List tables: `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`
+- Describe table: `PRAGMA table_info(table_name)`
+- Show indexes: `PRAGMA index_list(table_name)`
+- Sample data: `SELECT * FROM table_name LIMIT 3`
+
 ### Type casting
 - `CAST(x AS REAL)` — no FLOAT/DOUBLE. `CAST(x AS INTEGER)` — no INT/BIGINT.
 - `CAST(x AS TEXT)` — no VARCHAR/CHAR(n). No BOOLEAN type — use 1/0.

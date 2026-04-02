@@ -39,20 +39,21 @@ public interface AgentMiddleware {
   default void onAgentFinish(AgentContext ctx) {}
 
   /**
-   * Called before each LLM invocation. Return non-null to skip the LLM call. Runs first-to-last.
+   * Called before each LLM invocation. Return non-null to skip or modify the LLM call. Runs
+   * first-to-last.
+   *
+   * @return {@code null} to proceed normally, {@link LlmSkip} to abort, or {@link
+   *     LlmModifyMessages} to replace the message list for this call.
    */
-  default LlmRequestDecision beforeLlmCall(
-      AgentContext ctx, List<ChatCompletionMessageParam> messages) {
+  default LlmCallAction beforeLlmCall(AgentContext ctx, List<ChatCompletionMessageParam> messages) {
     return null;
   }
 
   /** Called after each LLM invocation. Runs last-to-first. */
   default void afterLlmCall(AgentContext ctx, ChatCompletionAssistantMessageParam response) {}
 
-  /**
-   * Called before each tool execution. Return non-null to deny/modify the call. Runs first-to-last.
-   */
-  default ToolCallDecision beforeToolCall(
+  /** Called before each tool execution. Return non-null to deny the call. Runs first-to-last. */
+  default ToolCallDenial beforeToolCall(
       AgentContext ctx, String toolName, Map<String, Object> toolArgs) {
     return null;
   }
@@ -74,18 +75,20 @@ public interface AgentMiddleware {
     return event;
   }
 
-  /** Decision to skip or modify an LLM request. */
-  class LlmRequestDecision {
-    private final boolean skip;
+  /**
+   * Base type for {@code beforeLlmCall} return values. Subtypes: {@link LlmSkip} to abort the LLM
+   * call, {@link LlmModifyMessages} to replace the message list for this call.
+   */
+  abstract class LlmCallAction {
+    private LlmCallAction() {}
+  }
+
+  /** Returned from {@code beforeLlmCall} to skip the LLM call and abort the agent loop. */
+  class LlmSkip extends LlmCallAction {
     private final String reason;
 
-    public LlmRequestDecision(boolean skip, String reason) {
-      this.skip = skip;
+    public LlmSkip(String reason) {
       this.reason = reason;
-    }
-
-    public boolean skip() {
-      return skip;
     }
 
     public String reason() {
@@ -93,18 +96,28 @@ public interface AgentMiddleware {
     }
   }
 
-  /** Decision to deny or allow a tool call. */
-  class ToolCallDecision {
-    private final boolean allow;
-    private final String reason;
+  /**
+   * Returned from {@code beforeLlmCall} to replace the message list for this LLM invocation. The
+   * agent loop continues normally with the modified messages.
+   */
+  class LlmModifyMessages extends LlmCallAction {
+    private final List<ChatCompletionMessageParam> messages;
 
-    public ToolCallDecision(boolean allow, String reason) {
-      this.allow = allow;
-      this.reason = reason;
+    public LlmModifyMessages(List<ChatCompletionMessageParam> messages) {
+      this.messages = messages;
     }
 
-    public boolean allow() {
-      return allow;
+    public List<ChatCompletionMessageParam> messages() {
+      return messages;
+    }
+  }
+
+  /** Returned from {@code beforeToolCall} to deny a tool call. Non-null means denied. */
+  class ToolCallDenial {
+    private final String reason;
+
+    public ToolCallDenial(String reason) {
+      this.reason = reason;
     }
 
     public String reason() {

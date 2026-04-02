@@ -27,7 +27,7 @@ public class SystemPromptBuilderTest {
   @Test
   public void testDefaultBuildContainsBaseAndDate() {
     String prompt = SystemPromptBuilder.create().build();
-    assertTrue(prompt.contains("describe_schema"));
+    assertTrue(prompt.contains("data analysis agent"));
     assertTrue(prompt.contains(LocalDate.now().toString()));
   }
 
@@ -35,31 +35,28 @@ public class SystemPromptBuilderTest {
   public void testPlaceholdersRemovedByDefault() {
     String prompt = SystemPromptBuilder.create().build();
     assertFalse(prompt.contains("{{tool_descriptions}}"));
-    assertFalse(prompt.contains("{{dialect_hints}}"));
   }
 
   @Test
   public void testToolDescriptionsSubstituted() {
-    String tools =
-        "- `sql_query`: Execute a SQL SELECT query.\n- `describe_schema`: Inspect table schema.";
+    String tools = "- `sql_query`: Execute a SQL statement against the database.";
     String prompt = SystemPromptBuilder.create().toolDescriptions(tools).build();
     assertTrue(prompt.contains("sql_query"));
-    assertTrue(prompt.contains("Inspect table schema"));
+    assertTrue(prompt.contains("Execute a SQL statement"));
     assertFalse(prompt.contains("{{tool_descriptions}}"));
   }
 
   @Test
-  public void testDialectSubstituted() {
-    String prompt = SystemPromptBuilder.create().dialect("sqlite").build();
+  public void testDatasourceSqlite() {
+    String prompt = SystemPromptBuilder.create().datasource("sqlite").build();
     assertTrue(prompt.contains("SQLite SQL compatibility"));
     assertTrue(prompt.contains("JULIANDAY"));
-    assertFalse(prompt.contains("{{dialect_hints}}"));
   }
 
   @Test
-  public void testWithEngine() {
-    String prompt = SystemPromptBuilder.create().engine("spark").build();
-    assertTrue(prompt.contains("describe_schema"));
+  public void testDatasourceSpark() {
+    String prompt = SystemPromptBuilder.create().datasource("spark").build();
+    assertTrue(prompt.contains("data analysis agent"));
     assertTrue(prompt.contains("Spark SQL"));
   }
 
@@ -81,8 +78,8 @@ public class SystemPromptBuilderTest {
     String prompt =
         SystemPromptBuilder.create()
             .toolDescriptions("- `sql_query`: Execute SQL.")
-            .dialect("sqlite")
-            .engine("spark")
+            .datasource("sqlite")
+            .datasource("spark")
             .section("Limit all queries to 1000 rows.")
             .build();
     assertTrue(prompt.contains("sql_query"));
@@ -93,25 +90,16 @@ public class SystemPromptBuilderTest {
   }
 
   @Test
-  public void testUnknownEngineIgnored() {
-    String withUnknown = SystemPromptBuilder.create().engine("unknown").build();
+  public void testUnknownDatasourceIgnored() {
+    String withUnknown = SystemPromptBuilder.create().datasource("unknown").build();
     String plain = SystemPromptBuilder.create().build();
     assertEquals(plain, withUnknown);
   }
 
   @Test
-  public void testUnknownDialectIgnored() {
-    String withUnknown = SystemPromptBuilder.create().dialect("unknown").build();
+  public void testJdbcUrlUnknownIgnored() {
     String plain = SystemPromptBuilder.create().build();
-    assertEquals(plain, withUnknown);
-  }
-
-  @Test
-  public void testJdbcUrlSqlite() {
-    String prompt = SystemPromptBuilder.create().jdbcUrl("jdbc:sqlite:/tmp/test.db").build();
-    assertTrue(prompt.contains("SQLite SQL compatibility"));
-    // SQLite has no engine section
-    assertFalse(prompt.contains("Spark SQL"));
+    assertEquals(plain, SystemPromptBuilder.create().jdbcUrl("jdbc:sqlite:/tmp/test.db").build());
   }
 
   @Test
@@ -121,15 +109,8 @@ public class SystemPromptBuilderTest {
   }
 
   @Test
-  public void testJdbcUrlTrino() {
-    String prompt = SystemPromptBuilder.create().jdbcUrl("jdbc:trino://localhost:8080").build();
-    assertTrue(prompt.contains("Trino"));
-  }
-
-  @Test
-  public void testJdbcUrlUnknownFallsBack() {
+  public void testJdbcUrlNullFallsBack() {
     String plain = SystemPromptBuilder.create().build();
-    assertEquals(plain, SystemPromptBuilder.create().jdbcUrl("jdbc:mysql://localhost/db").build());
     assertEquals(plain, SystemPromptBuilder.create().jdbcUrl(null).build());
   }
 
@@ -141,8 +122,7 @@ public class SystemPromptBuilderTest {
   @Test
   public void testNullsIgnored() {
     String plain = SystemPromptBuilder.create().build();
-    assertEquals(plain, SystemPromptBuilder.create().engine(null).build());
-    assertEquals(plain, SystemPromptBuilder.create().dialect(null).build());
+    assertEquals(plain, SystemPromptBuilder.create().datasource(null).build());
     assertEquals(plain, SystemPromptBuilder.create().toolDescriptions(null).build());
     assertEquals(plain, SystemPromptBuilder.create().section(null).build());
     assertEquals(plain, SystemPromptBuilder.create().section("").build());

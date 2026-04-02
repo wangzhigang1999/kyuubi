@@ -18,9 +18,14 @@ package org.apache.kyuubi.engine.dataagent.operation
 
 import java.util.concurrent.RejectedExecutionException
 
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.node.ObjectNode
+import org.slf4j.MDC
+
 import org.apache.kyuubi.{KyuubiSQLException, Logging}
-import org.apache.kyuubi.engine.dataagent.provider.DataAgentProvider
-import org.apache.kyuubi.engine.dataagent.runtime.event.{AgentError, AgentEvent, ContentDelta, EventType, ToolCall, ToolResult}
+import org.apache.kyuubi.config.KyuubiConf
+import org.apache.kyuubi.engine.dataagent.provider.{DataAgentProvider, ProviderRunRequest}
+import org.apache.kyuubi.engine.dataagent.runtime.event.{AgentError, AgentEvent, AgentFinish, ContentDelta, EventType, StepEnd, StepStart, ToolCall, ToolResult}
 import org.apache.kyuubi.operation.OperationState
 import org.apache.kyuubi.operation.log.OperationLog
 import org.apache.kyuubi.session.Session
@@ -28,10 +33,13 @@ import org.apache.kyuubi.session.Session
 class ExecuteStatement(
     session: Session,
     override val statement: String,
+    confOverlay: Map[String, String],
     override val shouldRunAsync: Boolean,
     queryTimeout: Long,
     dataAgentProvider: DataAgentProvider)
   extends DataAgentOperation(session) with Logging {
+
+  import ExecuteStatement.JSON
 
   private val operationLog: OperationLog = OperationLog.createOperationLog(session, getHandle)
   override def getOperationLog: Option[OperationLog] = Option(operationLog)
@@ -63,13 +71,10 @@ class ExecuteStatement(
     }
   }
 
-  private def escapeJson(s: String): String = {
-    if (s == null) return ""
-    s.replace("\\", "\\\\")
-      .replace("\"", "\\\"")
-      .replace("\n", "\\n")
-      .replace("\r", "\\r")
-      .replace("\t", "\\t")
+  private def toJson(build: ObjectNode => Unit): String = {
+    val node = JSON.createObjectNode()
+    build(node)
+    JSON.writeValueAsString(node)
   }
 
   private def executeStatement(): Unit = {
@@ -77,41 +82,75 @@ class ExecuteStatement(
 
     try {
       val sessionId = session.handle.identifier.toString
-      dataAgentProvider.run(
-        sessionId,
-        statement,
-        { (event: AgentEvent) =>
-          val sseType = event.eventType().sseEventName()
-          event.eventType() match {
-            case EventType.CONTENT_DELTA =>
-              val delta = event.asInstanceOf[ContentDelta]
-              incrementalIter.append(Array(
-                s"""{"type":"$sseType","text":"${escapeJson(delta.text())}"}"""))
-            case EventType.TOOL_CALL =>
-              val toolCall = event.asInstanceOf[ToolCall]
-              incrementalIter.append(Array(
-                s"""{"type":"$sseType","name":"${escapeJson(toolCall.toolName())}",""" +
-                  s""""args":"${escapeJson(toolCall.toolArgs().toString)}"}"""))
-            case EventType.TOOL_RESULT =>
-              val toolResult = event.asInstanceOf[ToolResult]
-              incrementalIter.append(Array(
-                s"""{"type":"$sseType","name":"${escapeJson(toolResult.toolName())}",""" +
-                  s""""output":"${escapeJson(toolResult.output())}"}"""))
-            case EventType.ERROR =>
-              val err = event.asInstanceOf[AgentError]
-              incrementalIter.append(Array(
-                s"""{"type":"$sseType","message":"${escapeJson(err.message())}"}"""))
-            case EventType.FINISH =>
-              incrementalIter.append(Array(s"""{"type":"$sseType"}"""))
-            case _ => // CONTENT_COMPLETE, STEP_START — not sent over SSE
-          }
-        })
+      val operationId = getHandle.identifier.toString
+      MDC.put("operationId", operationId)
+      MDC.put("sessionId", sessionId)
+      val request = new ProviderRunRequest(statement)
+      confOverlay.get(KyuubiConf.ENGINE_DATA_AGENT_LLM_MODEL.key).foreach(request.modelName)
+
+      val eventConsumer: AgentEvent => Unit = { (event: AgentEvent) =>
+        val sseType = event.eventType().sseEventName()
+        event.eventType() match {
+          case EventType.AGENT_START =>
+            incrementalIter.append(Array(toJson { n =>
+              n.put("type", sseType)
+            }))
+          case EventType.STEP_START =>
+            val stepStart = event.asInstanceOf[StepStart]
+            incrementalIter.append(Array(toJson { n =>
+              n.put("type", sseType); n.put("step", stepStart.stepNumber())
+            }))
+          case EventType.CONTENT_DELTA =>
+            val delta = event.asInstanceOf[ContentDelta]
+            incrementalIter.append(Array(toJson { n =>
+              n.put("type", sseType); n.put("text", delta.text())
+            }))
+          case EventType.TOOL_CALL =>
+            val toolCall = event.asInstanceOf[ToolCall]
+            incrementalIter.append(Array(toJson { n =>
+              n.put("type", sseType)
+              n.put("name", toolCall.toolName())
+              n.put("args", toolCall.toolArgs().toString)
+            }))
+          case EventType.TOOL_RESULT =>
+            val toolResult = event.asInstanceOf[ToolResult]
+            incrementalIter.append(Array(toJson { n =>
+              n.put("type", sseType)
+              n.put("name", toolResult.toolName())
+              n.put("output", toolResult.output())
+            }))
+          case EventType.STEP_END =>
+            val stepEnd = event.asInstanceOf[StepEnd]
+            incrementalIter.append(Array(toJson { n =>
+              n.put("type", sseType); n.put("step", stepEnd.stepNumber())
+            }))
+          case EventType.ERROR =>
+            val err = event.asInstanceOf[AgentError]
+            incrementalIter.append(Array(toJson { n =>
+              n.put("type", sseType); n.put("message", err.message())
+            }))
+          case EventType.AGENT_FINISH =>
+            val finish = event.asInstanceOf[AgentFinish]
+            incrementalIter.append(Array(toJson { n =>
+              n.put("type", sseType)
+              n.put("steps", finish.totalSteps())
+            }))
+          case _ => // CONTENT_COMPLETE — internal to middleware pipeline
+        }
+      }
+      dataAgentProvider.run(sessionId, request, e => eventConsumer(e))
 
       setState(OperationState.FINISHED)
     } catch {
       onError(true)
     } finally {
+      MDC.remove("operationId")
+      MDC.remove("sessionId")
       shutdownTimeoutMonitor()
     }
   }
+}
+
+object ExecuteStatement {
+  private val JSON = new ObjectMapper()
 }

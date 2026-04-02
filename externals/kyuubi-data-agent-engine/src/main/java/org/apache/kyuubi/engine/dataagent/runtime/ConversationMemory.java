@@ -35,6 +35,7 @@ import java.util.List;
 public class ConversationMemory {
 
   private String systemPrompt;
+  private String lastUserInput;
   private final List<ChatCompletionMessageParam> messages = new ArrayList<>();
 
   public ConversationMemory() {}
@@ -44,9 +45,14 @@ public class ConversationMemory {
   }
 
   public synchronized void addUserMessage(String content) {
+    this.lastUserInput = content;
     messages.add(
         ChatCompletionMessageParam.ofUser(
             ChatCompletionUserMessageParam.builder().content(content).build()));
+  }
+
+  public synchronized String getLastUserInput() {
+    return lastUserInput;
   }
 
   public synchronized void addAssistantMessage(ChatCompletionAssistantMessageParam message) {
@@ -81,6 +87,15 @@ public class ConversationMemory {
 
   public synchronized List<ChatCompletionMessageParam> getRawMessages() {
     return Collections.unmodifiableList(new ArrayList<>(messages));
+  }
+
+  /**
+   * Replace the entire message history with a compacted list. Useful for context-length management
+   * strategies (e.g., summarizing older messages).
+   */
+  public synchronized void replaceMessages(List<ChatCompletionMessageParam> compacted) {
+    messages.clear();
+    messages.addAll(compacted);
   }
 
   public synchronized void clear() {

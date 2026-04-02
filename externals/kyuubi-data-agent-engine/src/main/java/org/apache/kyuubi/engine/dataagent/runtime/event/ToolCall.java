@@ -17,6 +17,8 @@
 
 package org.apache.kyuubi.engine.dataagent.runtime.event;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** The agent is about to invoke a tool. */
@@ -27,7 +29,10 @@ public final class ToolCall extends AgentEvent {
   public ToolCall(String toolName, Map<String, Object> toolArgs) {
     super(EventType.TOOL_CALL);
     this.toolName = toolName;
-    this.toolArgs = toolArgs;
+    this.toolArgs =
+        toolArgs != null
+            ? Collections.unmodifiableMap(new LinkedHashMap<>(toolArgs))
+            : Collections.emptyMap();
   }
 
   public String toolName() {

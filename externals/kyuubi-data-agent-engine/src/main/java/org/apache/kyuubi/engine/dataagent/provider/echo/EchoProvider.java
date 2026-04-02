@@ -19,10 +19,13 @@ package org.apache.kyuubi.engine.dataagent.provider.echo;
 
 import java.util.function.Consumer;
 import org.apache.kyuubi.engine.dataagent.provider.DataAgentProvider;
+import org.apache.kyuubi.engine.dataagent.provider.ProviderRunRequest;
 import org.apache.kyuubi.engine.dataagent.runtime.event.AgentEvent;
 import org.apache.kyuubi.engine.dataagent.runtime.event.AgentFinish;
+import org.apache.kyuubi.engine.dataagent.runtime.event.AgentStart;
 import org.apache.kyuubi.engine.dataagent.runtime.event.ContentComplete;
 import org.apache.kyuubi.engine.dataagent.runtime.event.ContentDelta;
+import org.apache.kyuubi.engine.dataagent.runtime.event.StepEnd;
 import org.apache.kyuubi.engine.dataagent.runtime.event.StepStart;
 
 /** A simple echo provider for testing purposes. Simulates the agent event stream. */
@@ -32,7 +35,10 @@ public class EchoProvider implements DataAgentProvider {
   public void open(String sessionId, String user) {}
 
   @Override
-  public void run(String sessionId, String question, Consumer<AgentEvent> onEvent) {
+  public void run(String sessionId, ProviderRunRequest request, Consumer<AgentEvent> onEvent) {
+    String question = request.getQuestion();
+
+    onEvent.accept(new AgentStart());
     onEvent.accept(new StepStart(1));
 
     // Simulate token-level streaming
@@ -47,6 +53,7 @@ public class EchoProvider implements DataAgentProvider {
     }
 
     onEvent.accept(new ContentComplete(reply));
+    onEvent.accept(new StepEnd(1));
     onEvent.accept(new AgentFinish(1, 0, 0, 0));
   }
 

@@ -57,8 +57,11 @@ class DataAgentSessionManager(name: String)
   }
 
   override def stop(): Unit = {
-    dataAgentProvider.stop()
-    super.stop()
+    try {
+      dataAgentProvider.stop()
+    } finally {
+      super.stop()
+    }
   }
 
   override def closeSession(sessionHandle: SessionHandle): Unit = {

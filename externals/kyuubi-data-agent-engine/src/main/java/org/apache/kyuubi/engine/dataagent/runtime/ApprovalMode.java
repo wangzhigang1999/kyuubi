@@ -24,5 +24,5 @@ public enum ApprovalMode {
   /** Only non-readonly tools require approval. */
   NORMAL,
   /** All tools are auto-approved. */
-  YOLO
+  AUTO_APPROVE
 }

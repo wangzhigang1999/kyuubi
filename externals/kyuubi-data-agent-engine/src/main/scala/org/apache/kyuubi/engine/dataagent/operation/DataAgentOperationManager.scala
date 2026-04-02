@@ -38,6 +38,7 @@ class DataAgentOperationManager(
       new ExecuteStatement(
         session,
         statement,
+        confOverlay,
         runAsync,
         queryTimeout,
         dataAgentProvider)

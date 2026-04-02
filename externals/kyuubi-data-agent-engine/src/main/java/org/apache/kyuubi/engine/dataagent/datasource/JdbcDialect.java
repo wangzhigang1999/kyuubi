@@ -18,35 +18,34 @@
 package org.apache.kyuubi.engine.dataagent.datasource;
 
 /**
- * SQL dialect inferred from a JDBC URL. Each dialect maps to:
+ * SQL dialect abstraction for datasource-specific SQL generation.
  *
- * <ul>
- *   <li>a dialect name — for SQL compatibility hints ({@code prompts/dialect-{name}.md})
- *   <li>an optional engine name — for engine-specific guidelines ({@code prompts/engine-{name}.md})
- * </ul>
+ * <p>Each dialect maps to a datasource name used for prompt resource lookup ({@code
+ * prompts/datasource-{name}.md}).
  */
-public enum JdbcDialect {
-  SQLITE("sqlite", null),
-  SPARK("spark", "spark"),
-  TRINO("trino", "trino");
+public interface JdbcDialect {
 
-  private final String dialectName;
-  private final String engineName;
+  /** Datasource name for prompt resource lookup (e.g. "spark", "trino"). */
+  String datasourceName();
 
-  JdbcDialect(String dialectName, String engineName) {
-    this.dialectName = dialectName;
-    this.engineName = engineName;
-  }
+  /**
+   * Quote an identifier (table/column/database name) using the dialect-appropriate quote character.
+   * Escapes any embedded quote characters by doubling them.
+   */
+  String quoteIdentifier(String identifier);
 
-  /** Dialect name for prompt resource lookup (e.g. "sqlite", "spark", "trino"). */
-  public String dialectName() {
-    return dialectName;
-  }
-
-  /** Engine name for prompt resource lookup, or {@code null} if not applicable. */
-  public String engineName() {
-    return engineName;
-  }
+  /**
+   * Generate a SQL statement that returns up to {@code limit} random distinct non-null values from
+   * a column. Used for profiling column content (enum values, date formats, ID patterns, etc.).
+   *
+   * @param table fully qualified table name (already quoted if needed)
+   * @param column column name (already quoted if needed)
+   * @param percent sampling percentage (0, 100], controls how much data to scan before
+   *     deduplication. Dialects without native sampling support may ignore this parameter.
+   * @param limit maximum number of distinct values to return
+   * @return a dialect-specific SQL string
+   */
+  String randomDistinctSampleColumn(String table, String column, int percent, int limit);
 
   /**
    * Infer the dialect from a JDBC URL.
@@ -54,19 +53,13 @@ public enum JdbcDialect {
    * @param jdbcUrl the JDBC connection URL
    * @return the matching dialect, or {@code null} if unrecognized
    */
-  public static JdbcDialect fromUrl(String jdbcUrl) {
+  static JdbcDialect fromUrl(String jdbcUrl) {
     if (jdbcUrl == null) {
       return null;
     }
     String lower = jdbcUrl.toLowerCase();
-    if (lower.startsWith("jdbc:sqlite:")) {
-      return SQLITE;
-    }
     if (lower.startsWith("jdbc:hive2:") || lower.startsWith("jdbc:spark:")) {
-      return SPARK;
-    }
-    if (lower.startsWith("jdbc:trino:") || lower.startsWith("jdbc:presto:")) {
-      return TRINO;
+      return SparkDialect.INSTANCE;
     }
     return null;
   }

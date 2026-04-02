@@ -19,6 +19,9 @@ package org.apache.kyuubi.engine.dataagent.runtime;
 
 import static org.junit.Assert.*;
 
+import com.openai.models.chat.completions.ChatCompletionMessageParam;
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.kyuubi.engine.dataagent.runtime.event.AgentEvent;
 import org.apache.kyuubi.engine.dataagent.runtime.event.ContentDelta;
 import org.apache.kyuubi.engine.dataagent.runtime.event.EventType;
@@ -41,7 +44,7 @@ public class AgentMiddlewareTest {
           }
         };
 
-    AgentContext ctx = new AgentContext("test", new ConversationMemory(), ApprovalMode.YOLO);
+    AgentContext ctx = new AgentContext(new ConversationMemory(), ApprovalMode.AUTO_APPROVE);
 
     AgentEvent delta = new ContentDelta("hello");
     assertNull("Middleware should suppress ContentDelta", suppressDelta.onEvent(ctx, delta));
@@ -52,25 +55,23 @@ public class AgentMiddlewareTest {
   }
 
   @Test
-  public void testToolCallDecision() {
-    AgentMiddleware.ToolCallDecision allow = new AgentMiddleware.ToolCallDecision(true, "allowed");
-    assertTrue(allow.allow());
-    assertEquals("allowed", allow.reason());
-
-    AgentMiddleware.ToolCallDecision deny = new AgentMiddleware.ToolCallDecision(false, "denied");
-    assertFalse(deny.allow());
-    assertEquals("denied", deny.reason());
+  public void testToolCallDenial() {
+    AgentMiddleware.ToolCallDenial denial = new AgentMiddleware.ToolCallDenial("not allowed");
+    assertEquals("not allowed", denial.reason());
   }
 
   @Test
-  public void testLlmRequestDecision() {
-    AgentMiddleware.LlmRequestDecision skip =
-        new AgentMiddleware.LlmRequestDecision(true, "cached");
-    assertTrue(skip.skip());
+  public void testLlmSkip() {
+    AgentMiddleware.LlmSkip skip = new AgentMiddleware.LlmSkip("cached");
     assertEquals("cached", skip.reason());
+    assertTrue(skip instanceof AgentMiddleware.LlmCallAction);
+  }
 
-    AgentMiddleware.LlmRequestDecision proceed =
-        new AgentMiddleware.LlmRequestDecision(false, null);
-    assertFalse(proceed.skip());
+  @Test
+  public void testLlmModifyMessages() {
+    List<ChatCompletionMessageParam> msgs = new ArrayList<>();
+    AgentMiddleware.LlmModifyMessages modify = new AgentMiddleware.LlmModifyMessages(msgs);
+    assertSame(msgs, modify.messages());
+    assertTrue(modify instanceof AgentMiddleware.LlmCallAction);
   }
 }

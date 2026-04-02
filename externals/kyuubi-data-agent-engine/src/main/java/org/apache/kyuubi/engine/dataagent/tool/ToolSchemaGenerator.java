@@ -38,7 +38,7 @@ import java.util.Map;
  */
 public class ToolSchemaGenerator {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper JSON = new ObjectMapper();
   private static final SchemaGenerator GENERATOR;
 
   static {
@@ -54,7 +54,7 @@ public class ToolSchemaGenerator {
   @SuppressWarnings("unchecked")
   public static Map<String, Object> generateSchema(Class<?> argsClass) {
     JsonNode schemaNode = GENERATOR.generateSchema(argsClass);
-    Map<String, Object> schema = MAPPER.convertValue(schemaNode, Map.class);
+    Map<String, Object> schema = JSON.convertValue(schemaNode, Map.class);
     // Remove $schema key — OpenAI function parameters don't expect it.
     schema.remove("$schema");
     return schema;

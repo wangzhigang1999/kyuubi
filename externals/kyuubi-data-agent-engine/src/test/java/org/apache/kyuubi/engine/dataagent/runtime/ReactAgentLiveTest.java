@@ -32,7 +32,6 @@ import java.util.stream.Collectors;
 import org.apache.kyuubi.engine.dataagent.prompt.SystemPromptBuilder;
 import org.apache.kyuubi.engine.dataagent.runtime.event.*;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
-import org.apache.kyuubi.engine.dataagent.tool.schema.SchemaInspectTool;
 import org.apache.kyuubi.engine.dataagent.tool.sql.SqlQueryTool;
 import org.junit.After;
 import org.junit.Before;
@@ -47,8 +46,11 @@ import org.sqlite.SQLiteDataSource;
 public class ReactAgentLiveTest {
 
   private static final String API_KEY = System.getenv().getOrDefault("DASHSCOPE_API_KEY", "");
-  private static final String BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
-  private static final String MODEL_NAME = "qwen3.5-plus-2026-02-15";
+  private static final String BASE_URL =
+      System.getenv()
+          .getOrDefault("DASHSCOPE_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1");
+  private static final String MODEL_NAME =
+      System.getenv().getOrDefault("DASHSCOPE_MODEL", "qwen-plus");
 
   private static final String SYSTEM_PROMPT = SystemPromptBuilder.create().build();
 
@@ -80,7 +82,7 @@ public class ReactAgentLiveTest {
     List<AgentEvent> events = new CopyOnWriteArrayList<>();
     ConversationMemory memory = new ConversationMemory();
 
-    agent.run("What is Apache Kyuubi?", memory, ApprovalMode.YOLO, events::add);
+    agent.run(new AgentRunRequest("What is Apache Kyuubi?"), memory, events::add);
 
     List<String> deltas =
         events.stream()
@@ -100,7 +102,6 @@ public class ReactAgentLiveTest {
   public void testFullReActLoopWithSchemaInspectAndSqlQuery() {
     SQLiteDataSource ds = createSalesDatabase();
     ToolRegistry registry = new ToolRegistry();
-    registry.register(new SchemaInspectTool(ds));
     registry.register(new SqlQueryTool(ds));
 
     ReactAgent agent =
@@ -116,9 +117,9 @@ public class ReactAgentLiveTest {
     ConversationMemory memory = new ConversationMemory();
 
     agent.run(
-        "What is the total revenue by product category? Which category has the highest revenue?",
+        new AgentRunRequest(
+            "What is the total revenue by product category? Which category has the highest revenue?"),
         memory,
-        ApprovalMode.YOLO,
         events::add);
 
     printEventStream(events);
@@ -138,11 +139,6 @@ public class ReactAgentLiveTest {
     assertFalse("Agent should have called at least one tool", toolCalls.isEmpty());
     assertFalse("Agent should have received tool results", toolResults.isEmpty());
     assertTrue("Tool calls should not error", toolResults.stream().noneMatch(ToolResult::isError));
-
-    // Verify schema inspect was called
-    assertTrue(
-        "Agent should call describe_schema first",
-        toolCalls.stream().anyMatch(tc -> "describe_schema".equals(tc.toolName())));
 
     // Verify SQL query was called
     assertTrue(
@@ -170,7 +166,6 @@ public class ReactAgentLiveTest {
   public void testMultiTurnConversationWithToolUse() {
     SQLiteDataSource ds = createSalesDatabase();
     ToolRegistry registry = new ToolRegistry();
-    registry.register(new SchemaInspectTool(ds));
     registry.register(new SqlQueryTool(ds));
 
     ReactAgent agent =
@@ -187,7 +182,7 @@ public class ReactAgentLiveTest {
 
     // Turn 1
     List<AgentEvent> events1 = new CopyOnWriteArrayList<>();
-    agent.run("How many orders are there in total?", memory, ApprovalMode.YOLO, events1::add);
+    agent.run(new AgentRunRequest("How many orders are there in total?"), memory, events1::add);
 
     System.out.println("=== Turn 1 ===");
     printEventStream(events1);
@@ -201,7 +196,7 @@ public class ReactAgentLiveTest {
     // Turn 2: follow-up relying on conversation context
     List<AgentEvent> events2 = new CopyOnWriteArrayList<>();
     agent.run(
-        "Now show me only orders above 500 dollars.", memory, ApprovalMode.YOLO, events2::add);
+        new AgentRunRequest("Now show me only orders above 500 dollars."), memory, events2::add);
 
     System.out.println("=== Turn 2 ===");
     printEventStream(events2);
@@ -242,7 +237,7 @@ public class ReactAgentLiveTest {
           String preview = output.length() > 200 ? output.substring(0, 200) + "..." : output;
           System.out.println("[ToolResult] " + tr.toolName() + " -> " + preview);
           break;
-        case FINISH:
+        case AGENT_FINISH:
           AgentFinish f = (AgentFinish) event;
           System.out.println("[Finish] steps=" + f.totalSteps() + " tokens=" + f.totalTokens());
           break;

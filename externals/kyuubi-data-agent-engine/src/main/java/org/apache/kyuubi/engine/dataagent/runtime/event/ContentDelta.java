@@ -32,6 +32,7 @@ public final class ContentDelta extends AgentEvent {
 
   @Override
   public String toString() {
-    return "ContentDelta{text='" + text + "'}";
+    String preview = text != null && text.length() > 200 ? text.substring(0, 200) + "..." : text;
+    return "ContentDelta{text='" + preview + "'}";
   }
 }

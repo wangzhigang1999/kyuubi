@@ -23,7 +23,6 @@ package org.apache.kyuubi.engine.dataagent.runtime;
  */
 public class AgentContext {
 
-  private final String userInput;
   private final ConversationMemory memory;
   private int iteration;
   private long promptTokens;
@@ -31,15 +30,10 @@ public class AgentContext {
   private long totalTokens;
   private ApprovalMode approvalMode;
 
-  public AgentContext(String userInput, ConversationMemory memory, ApprovalMode approvalMode) {
-    this.userInput = userInput;
+  public AgentContext(ConversationMemory memory, ApprovalMode approvalMode) {
     this.memory = memory;
     this.iteration = 0;
     this.approvalMode = approvalMode;
-  }
-
-  public String getUserInput() {
-    return userInput;
   }
 
   public ConversationMemory getMemory() {

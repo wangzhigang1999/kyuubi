@@ -28,41 +28,66 @@ import org.apache.kyuubi.engine.dataagent.runtime.event.StepStart;
 import org.apache.kyuubi.engine.dataagent.runtime.event.ToolResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 /**
- * Logging middleware that prints agent lifecycle events to the console for debugging and
- * observability.
+ * Logging middleware that prints agent lifecycle events for debugging and observability.
  *
- * <p>Log structure mirrors the ReAct loop:
+ * <p>Picks up {@code operationId} and {@code sessionId} from SLF4J MDC (set by ExecuteStatement) to
+ * tag every log line with the Kyuubi operation/session context.
+ *
+ * <p>Log structure:
  *
  * <pre>
- *   [agent] START user_input="..."
- *     [agent] Step 1
- *       [agent] LLM call: 3 messages
- *       [agent] LLM response: 256 chars
- *       [agent] Tool call: sql_query {sql=SELECT ...}
- *       [agent] Tool result: sql_query (128 chars)
- *     [agent] Step 2
- *       [agent] LLM call: 5 messages
- *       [agent] LLM response: 512 chars
- *   [agent] FINISH steps=2, tokens=1234
+ *   [op:abcd1234] START user_input="..."
+ *   [op:abcd1234] Step 1
+ *   [op:abcd1234] LLM call: step=1, messages=3
+ *   [op:abcd1234] LLM response: step=1, content="...(truncated)", tool_calls=1
+ *   [op:abcd1234] Tool call: sql_query {sql=SELECT ...}
+ *   [op:abcd1234] Tool result: sql_query -> "| col1 | col2 |...(truncated)"
+ *   [op:abcd1234] FINISH steps=2, tokens=1234
  * </pre>
  */
 public class LoggingMiddleware implements AgentMiddleware {
 
-  private static final Logger LOG = LoggerFactory.getLogger(LoggingMiddleware.class);
+  private static final Logger LOG = LoggerFactory.getLogger("DataAgent");
 
-  private static final int MAX_PREVIEW_LENGTH = 200;
+  private static final int MAX_PREVIEW_LENGTH = 500;
+
+  private static String prefix() {
+    String sessionId = MDC.get("sessionId");
+    String opId = MDC.get("operationId");
+    StringBuilder sb = new StringBuilder();
+    if (sessionId != null) {
+      sb.append("[s:").append(shortId(sessionId)).append("]");
+    }
+    if (opId != null) {
+      sb.append("[op:").append(shortId(opId)).append("]");
+    }
+    if (sb.length() > 0) {
+      sb.append(" ");
+    }
+    return sb.toString();
+  }
+
+  /**
+   * Take the first segment of a UUID (before the first dash). e.g. "327d8c5b-91ef-..." → "327d8c5b"
+   */
+  private static String shortId(String id) {
+    int dash = id.indexOf('-');
+    return dash > 0 ? id.substring(0, dash) : id;
+  }
 
   @Override
   public void onAgentStart(AgentContext ctx) {
-    LOG.info("[agent] START user_input=\"{}\"", truncate(ctx.getUserInput()));
+    LOG.debug("{}START user_input=\"{}\"", prefix(), truncate(ctx.getMemory().getLastUserInput()));
   }
 
   @Override
   public void onAgentFinish(AgentContext ctx) {
     LOG.info(
-        "[agent] FINISH steps={}, prompt_tokens={}, completion_tokens={}, total_tokens={}",
+        "{}FINISH steps={}, prompt_tokens={}, completion_tokens={}, total_tokens={}",
+        prefix(),
         ctx.getIteration(),
         ctx.getPromptTokens(),
         ctx.getCompletionTokens(),
@@ -70,9 +95,8 @@ public class LoggingMiddleware implements AgentMiddleware {
   }
 
   @Override
-  public LlmRequestDecision beforeLlmCall(
-      AgentContext ctx, List<ChatCompletionMessageParam> messages) {
-    LOG.info("[agent] LLM call: step={}, messages={}", ctx.getIteration(), messages.size());
+  public LlmCallAction beforeLlmCall(AgentContext ctx, List<ChatCompletionMessageParam> messages) {
+    LOG.info("{}LLM call: step={}, messages={}", prefix(), ctx.getIteration(), messages.size());
     return null;
   }
 
@@ -81,24 +105,24 @@ public class LoggingMiddleware implements AgentMiddleware {
     String content = response.content().map(Object::toString).orElse("");
     int toolCallCount = response.toolCalls().map(List::size).orElse(0);
     LOG.info(
-        "[agent] LLM response: step={}, content_length={}, tool_calls={}",
+        "{}LLM response: step={}, content=\"{}\", tool_calls={}",
+        prefix(),
         ctx.getIteration(),
-        content.length(),
+        truncate(content),
         toolCallCount);
   }
 
   @Override
-  public ToolCallDecision beforeToolCall(
+  public ToolCallDenial beforeToolCall(
       AgentContext ctx, String toolName, Map<String, Object> toolArgs) {
-    LOG.info("[agent] Tool call: {} {}", toolName, toolArgs);
+    LOG.debug("{}Tool call: {} {}", prefix(), toolName, toolArgs);
     return null;
   }
 
   @Override
   public String afterToolCall(
       AgentContext ctx, String toolName, Map<String, Object> toolArgs, String result) {
-    LOG.info("[agent] Tool result: {} ({} chars)", toolName, result.length());
-    LOG.debug("[agent] Tool result detail: {} -> {}", toolName, truncate(result));
+    LOG.info("{}Tool result: {} -> \"{}\"", prefix(), toolName, truncate(result));
     return null;
   }
 
@@ -106,15 +130,15 @@ public class LoggingMiddleware implements AgentMiddleware {
   public AgentEvent onEvent(AgentContext ctx, AgentEvent event) {
     switch (event.eventType()) {
       case STEP_START:
-        LOG.info("[agent] Step {}", ((StepStart) event).stepNumber());
+        LOG.info("{}Step {}", prefix(), ((StepStart) event).stepNumber());
         break;
       case ERROR:
-        LOG.error("[agent] ERROR: {}", ((AgentError) event).message());
+        LOG.error("{}ERROR: {}", prefix(), ((AgentError) event).message());
         break;
       case TOOL_RESULT:
         ToolResult tr = (ToolResult) event;
         if (tr.isError()) {
-          LOG.warn("[agent] Tool error: {} -> {}", tr.toolName(), truncate(tr.output()));
+          LOG.warn("{}Tool error: {} -> \"{}\"", prefix(), tr.toolName(), truncate(tr.output()));
         }
         break;
       default:

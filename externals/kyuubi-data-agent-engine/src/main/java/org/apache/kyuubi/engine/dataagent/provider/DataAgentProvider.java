@@ -32,11 +32,15 @@ public interface DataAgentProvider {
   void open(String sessionId, String user);
 
   /**
-   * Run the agent for the given question, emitting events via the consumer. Events include
+   * Run the agent for the given request, emitting events via the consumer. Events include
    * token-level ContentDelta for streaming, ToolCall/ToolResult for tool invocations, and
    * AgentFinish when complete.
+   *
+   * @param sessionId the session identifier (maps to conversation memory)
+   * @param request user-facing parameters (question, model override, etc.)
+   * @param onEvent event consumer for streaming events
    */
-  void run(String sessionId, String question, Consumer<AgentEvent> onEvent);
+  void run(String sessionId, ProviderRunRequest request, Consumer<AgentEvent> onEvent);
 
   /**
    * Close and clean up a single session, releasing session-scoped resources such as conversation

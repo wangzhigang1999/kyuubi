@@ -61,8 +61,11 @@ class DataAgentSessionImpl(
   }
 
   override def close(): Unit = {
-    dataAgentProvider.close(handle.identifier.toString)
-    super.close()
+    try {
+      dataAgentProvider.close(handle.identifier.toString)
+    } finally {
+      super.close()
+    }
   }
 
 }

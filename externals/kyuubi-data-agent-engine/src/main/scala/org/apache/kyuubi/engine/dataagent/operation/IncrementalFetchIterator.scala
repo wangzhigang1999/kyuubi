@@ -34,37 +34,57 @@ class IncrementalFetchIterator[A] extends FetchIterator[A] {
   private val buffer = new ArrayBuffer[A]()
   private val lock = new AnyRef
 
+  // All positions are logical (absolute from the start of the stream).
+  // buffer(0) corresponds to logical index `trimmedCount`.
+  private var trimmedCount: Long = 0
   @volatile private var fetchStart: Long = 0
   @volatile private var position: Long = 0
 
+  private val COMPACT_THRESHOLD = 1024
+
   /**
-   * Append an item to the buffer. Thread-safe — can be called from the producer thread
+   * Append an item to the buffer. Thread-safe - can be called from the producer thread
    * while the consumer thread is reading.
    */
   def append(item: A): Unit = lock.synchronized {
     buffer += item
   }
 
-  override def fetchNext(): Unit = {
+  override def fetchNext(): Unit = lock.synchronized {
     fetchStart = position
+    compactIfNeeded()
   }
 
   override def fetchAbsolute(pos: Long): Unit = lock.synchronized {
-    position = (pos max 0) min buffer.size
+    val logicalSize = trimmedCount + buffer.size
+    position = (pos max 0) min logicalSize
     fetchStart = position
+    compactIfNeeded()
   }
 
-  override def getFetchStart: Long = fetchStart
+  override def getFetchStart: Long = lock.synchronized { fetchStart }
 
-  override def getPosition: Long = position
+  override def getPosition: Long = lock.synchronized { position }
 
   override def hasNext: Boolean = lock.synchronized {
-    position < buffer.size
+    position < trimmedCount + buffer.size
   }
 
   override def next(): A = lock.synchronized {
-    val idx = position.toInt
+    val idx = (position - trimmedCount).toInt
     position += 1
     buffer(idx)
+  }
+
+  /**
+   * Remove already-consumed entries from the front of the buffer to free memory.
+   * Called during fetch operations when the consumed prefix exceeds the threshold.
+   */
+  private def compactIfNeeded(): Unit = {
+    val consumable = (fetchStart - trimmedCount).toInt
+    if (consumable >= COMPACT_THRESHOLD) {
+      buffer.remove(0, consumable)
+      trimmedCount += consumable
+    }
   }
 }

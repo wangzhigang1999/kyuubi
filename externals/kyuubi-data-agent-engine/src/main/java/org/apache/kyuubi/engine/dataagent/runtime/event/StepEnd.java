@@ -15,17 +15,23 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.engine.dataagent.tool.schema;
+package org.apache.kyuubi.engine.dataagent.runtime.event;
 
-import com.fasterxml.jackson.annotation.JsonPropertyDescription;
+/** A ReAct iteration has completed. */
+public final class StepEnd extends AgentEvent {
+  private final int stepNumber;
 
-/** Parameter schema for {@link SchemaInspectTool}. */
-public class SchemaInspectArgs {
+  public StepEnd(int stepNumber) {
+    super(EventType.STEP_END);
+    this.stepNumber = stepNumber;
+  }
 
-  @JsonPropertyDescription("Database/schema name. Empty or omitted to list all databases/schemas.")
-  public String database = "";
+  public int stepNumber() {
+    return stepNumber;
+  }
 
-  @JsonPropertyDescription(
-      "Table name to describe. Empty or omitted to list all tables in the database.")
-  public String tableName = "";
+  @Override
+  public String toString() {
+    return "StepEnd{stepNumber=" + stepNumber + "}";
+  }
 }
