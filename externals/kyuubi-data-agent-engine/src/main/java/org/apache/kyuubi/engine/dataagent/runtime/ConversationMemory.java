@@ -40,6 +40,10 @@ public class ConversationMemory {
 
   public ConversationMemory() {}
 
+  public synchronized String getSystemPrompt() {
+    return systemPrompt;
+  }
+
   public synchronized void setSystemPrompt(String prompt) {
     this.systemPrompt = prompt;
   }
@@ -69,10 +73,13 @@ public class ConversationMemory {
   }
 
   /**
-   * Returns the full message list for LLM invocation: system prompt + all history messages.
+   * Returns the full message list for LLM invocation: system prompt prepended + all history
+   * messages. This is the list sent to the LLM API.
    *
    * <p>No windowing is applied — callers are responsible for managing context length (e.g. via a
    * token-based truncation strategy).
+   *
+   * @see #getRawMessages() for history-only access without system prompt
    */
   public synchronized List<ChatCompletionMessageParam> getMessages() {
     List<ChatCompletionMessageParam> result = new ArrayList<>();
@@ -85,6 +92,11 @@ public class ConversationMemory {
     return result;
   }
 
+  /**
+   * Returns only the conversation history (user, assistant, tool messages) without the system
+   * prompt. Useful for middleware that needs to inspect or compact history without touching the
+   * system prompt.
+   */
   public synchronized List<ChatCompletionMessageParam> getRawMessages() {
     return Collections.unmodifiableList(new ArrayList<>(messages));
   }

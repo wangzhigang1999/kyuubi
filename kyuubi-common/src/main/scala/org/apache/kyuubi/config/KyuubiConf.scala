@@ -3822,6 +3822,15 @@ object KyuubiConf {
       .checkValue(_ > 0, "must be positive number")
       .createWithDefault(20)
 
+  val ENGINE_DATA_AGENT_QUERY_TIMEOUT: ConfigEntry[Int] =
+    buildConf("kyuubi.engine.data.agent.query.timeout")
+      .doc("The query execution timeout in seconds for the Data Agent SQL tool. " +
+        "Big-data queries may need a larger value.")
+      .version("1.11.0")
+      .intConf
+      .checkValue(_ > 0, "must be positive number")
+      .createWithDefault(300)
+
   val ENGINE_DATA_AGENT_JDBC_URL: OptionalConfigEntry[String] =
     buildConf("kyuubi.engine.data.agent.jdbc.url")
       .doc("The JDBC URL for the Data Agent engine to connect to the target database. " +
@@ -3834,6 +3843,18 @@ object KyuubiConf {
       .version("1.11.0")
       .stringConf
       .createOptional
+
+  val ENGINE_DATA_AGENT_APPROVAL_MODE: ConfigEntry[String] =
+    buildConf("kyuubi.engine.data.agent.approval.mode")
+      .doc("Default approval mode for tool execution in the Data Agent engine. " +
+        "STRICT: all tools require explicit user approval. " +
+        "NORMAL: only risky/destructive tools require approval. " +
+        "AUTO_APPROVE: all tools are auto-approved without user interaction. " +
+        "Can be overridden per request via session configs.")
+      .version("1.12.0")
+      .stringConf
+      .checkValues(Set("STRICT", "NORMAL", "AUTO_APPROVE"))
+      .createWithDefault("NORMAL")
 
   val ENGINE_JDBC_MEMORY: ConfigEntry[String] =
     buildConf("kyuubi.engine.jdbc.memory")

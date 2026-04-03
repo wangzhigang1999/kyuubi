@@ -46,6 +46,7 @@ class DataAgentE2ESuite extends HiveJDBCTestHelper with WithDataAgentEngine {
     ENGINE_DATA_AGENT_LLM_API_URL.key -> apiUrl,
     ENGINE_DATA_AGENT_LLM_MODEL.key -> modelName,
     ENGINE_DATA_AGENT_MAX_ITERATIONS.key -> "10",
+    ENGINE_DATA_AGENT_APPROVAL_MODE.key -> "AUTO_APPROVE",
     ENGINE_DATA_AGENT_JDBC_URL.key -> s"jdbc:sqlite:$dbPath")
 
   override protected def jdbcUrl: String = jdbcConnectionUrl

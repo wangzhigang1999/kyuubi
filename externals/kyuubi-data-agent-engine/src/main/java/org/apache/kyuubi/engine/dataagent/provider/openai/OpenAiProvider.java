@@ -30,10 +30,12 @@ import org.apache.kyuubi.engine.dataagent.prompt.SystemPromptBuilder;
 import org.apache.kyuubi.engine.dataagent.provider.DataAgentProvider;
 import org.apache.kyuubi.engine.dataagent.provider.ProviderRunRequest;
 import org.apache.kyuubi.engine.dataagent.runtime.AgentRunRequest;
+import org.apache.kyuubi.engine.dataagent.runtime.ApprovalMode;
 import org.apache.kyuubi.engine.dataagent.runtime.ConversationMemory;
 import org.apache.kyuubi.engine.dataagent.runtime.ReactAgent;
 import org.apache.kyuubi.engine.dataagent.runtime.event.AgentError;
 import org.apache.kyuubi.engine.dataagent.runtime.event.AgentEvent;
+import org.apache.kyuubi.engine.dataagent.runtime.middleware.ApprovalMiddleware;
 import org.apache.kyuubi.engine.dataagent.runtime.middleware.LoggingMiddleware;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
 import org.apache.kyuubi.engine.dataagent.tool.sql.SqlQueryTool;
@@ -54,6 +56,7 @@ public class OpenAiProvider implements DataAgentProvider {
   private static final Logger LOG = LoggerFactory.getLogger(OpenAiProvider.class);
 
   private final ReactAgent agent;
+  private final ApprovalMiddleware approvalMiddleware;
   private final DataSource dataSource;
   private final ConcurrentHashMap<String, ConversationMemory> sessions = new ConcurrentHashMap<>();
 
@@ -76,6 +79,7 @@ public class OpenAiProvider implements DataAgentProvider {
             .build();
 
     int maxIterations = (int) conf.get(KyuubiConf.ENGINE_DATA_AGENT_MAX_ITERATIONS());
+    int queryTimeoutSeconds = (int) conf.get(KyuubiConf.ENGINE_DATA_AGENT_QUERY_TIMEOUT());
 
     // Register tools and build prompt from JDBC URL
     DataSource ds = null;
@@ -88,9 +92,11 @@ public class OpenAiProvider implements DataAgentProvider {
         LOG.info(
             "Data Agent JDBC URL configured ({})", jdbcUrl.replaceAll("//.*@", "//<redacted>@"));
         ds = DataSourceFactory.create(jdbcUrl);
-        toolRegistry.register(new SqlQueryTool(ds));
+        toolRegistry.register(new SqlQueryTool(ds, queryTimeoutSeconds));
         promptBuilder.jdbcUrl(jdbcUrl);
       }
+
+      ApprovalMiddleware approval = new ApprovalMiddleware(toolRegistry);
 
       this.agent =
           ReactAgent.builder()
@@ -98,9 +104,11 @@ public class OpenAiProvider implements DataAgentProvider {
               .modelName(modelName)
               .toolRegistry(toolRegistry)
               .addMiddleware(new LoggingMiddleware())
+              .addMiddleware(approval)
               .maxIterations(maxIterations)
               .systemPrompt(promptBuilder.build())
               .build();
+      this.approvalMiddleware = approval;
 
       this.dataSource = ds;
     } catch (Exception e) {
@@ -125,10 +133,22 @@ public class OpenAiProvider implements DataAgentProvider {
       return;
     }
 
-    agent.run(
-        new AgentRunRequest(request.getQuestion()).modelName(request.getModelName()),
-        memory,
-        onEvent);
+    AgentRunRequest agentRequest =
+        new AgentRunRequest(request.getQuestion()).modelName(request.getModelName());
+    String modeStr = request.getApprovalMode();
+    if (modeStr != null && !modeStr.isEmpty()) {
+      try {
+        agentRequest.approvalMode(ApprovalMode.valueOf(modeStr.toUpperCase()));
+      } catch (IllegalArgumentException e) {
+        LOG.warn("Unknown approval mode '{}', using default NORMAL", modeStr);
+      }
+    }
+    agent.run(agentRequest, memory, onEvent);
+  }
+
+  @Override
+  public boolean resolveApproval(String requestId, boolean approved) {
+    return approvalMiddleware.resolve(requestId, approved);
   }
 
   @Override
@@ -139,6 +159,7 @@ public class OpenAiProvider implements DataAgentProvider {
 
   @Override
   public void stop() {
+    approvalMiddleware.cancelAll();
     try {
       agent.close();
     } catch (Exception e) {

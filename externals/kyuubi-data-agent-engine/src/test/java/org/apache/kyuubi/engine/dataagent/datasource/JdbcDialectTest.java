@@ -61,6 +61,34 @@ public class JdbcDialectTest {
   }
 
   @Test
+  public void testSqlite() {
+    JdbcDialect d = JdbcDialect.fromUrl("jdbc:sqlite:/tmp/test.db");
+    assertNotNull(d);
+    assertEquals("sqlite", d.datasourceName());
+  }
+
+  @Test
+  public void testSqliteCaseInsensitive() {
+    assertNotNull(JdbcDialect.fromUrl("JDBC:SQLITE:test.db"));
+  }
+
+  @Test
+  public void testSqliteQuoteIdentifier() {
+    JdbcDialect sqlite = JdbcDialect.fromUrl("jdbc:sqlite:test.db");
+    assertEquals("\"my_table\"", sqlite.quoteIdentifier("my_table"));
+    assertEquals("\" \"\"inject\"\" \"", sqlite.quoteIdentifier(" \"inject\" "));
+  }
+
+  @Test
+  public void testSqliteRandomDistinctSampleColumn() {
+    JdbcDialect sqlite = JdbcDialect.fromUrl("jdbc:sqlite:test.db");
+    String sql = sqlite.randomDistinctSampleColumn("\"table\"", "\"col\"", 10, 50);
+    assertTrue(sql.contains("ORDER BY RANDOM()"));
+    assertTrue(sql.contains("LIMIT 50"));
+    assertFalse("SQLite should not use TABLESAMPLE", sql.contains("TABLESAMPLE"));
+  }
+
+  @Test
   public void testUnknownReturnsNull() {
     assertNull(JdbcDialect.fromUrl("not-a-jdbc-url"));
   }

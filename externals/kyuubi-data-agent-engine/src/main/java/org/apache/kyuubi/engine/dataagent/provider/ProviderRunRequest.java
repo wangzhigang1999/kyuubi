@@ -26,6 +26,7 @@ public class ProviderRunRequest {
 
   private final String question;
   private String modelName;
+  private String approvalMode;
 
   public ProviderRunRequest(String question) {
     this.question = question;
@@ -41,6 +42,15 @@ public class ProviderRunRequest {
 
   public ProviderRunRequest modelName(String modelName) {
     this.modelName = modelName;
+    return this;
+  }
+
+  public String getApprovalMode() {
+    return approvalMode;
+  }
+
+  public ProviderRunRequest approvalMode(String approvalMode) {
+    this.approvalMode = approvalMode;
     return this;
   }
 }

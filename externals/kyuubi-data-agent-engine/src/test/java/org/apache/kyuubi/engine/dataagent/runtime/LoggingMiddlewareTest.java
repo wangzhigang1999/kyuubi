@@ -83,7 +83,7 @@ public class LoggingMiddlewareTest {
   public void testBeforeToolCallReturnsNull() {
     Map<String, Object> args = new HashMap<>();
     args.put("sql", "SELECT COUNT(*) FROM orders");
-    assertNull(middleware.beforeToolCall(ctx, "sql_query", args));
+    assertNull(middleware.beforeToolCall(ctx, "call_1", "sql_query", args));
   }
 
   @Test
@@ -103,13 +103,13 @@ public class LoggingMiddlewareTest {
     AgentEvent complete = new ContentComplete("full text");
     assertSame(complete, middleware.onEvent(ctx, complete));
 
-    AgentEvent toolCall = new ToolCall("sql_query", Collections.emptyMap());
+    AgentEvent toolCall = new ToolCall("call_1", "sql_query", Collections.emptyMap());
     assertSame(toolCall, middleware.onEvent(ctx, toolCall));
 
-    AgentEvent toolResult = new ToolResult("sql_query", "result", false);
+    AgentEvent toolResult = new ToolResult("call_1", "sql_query", "result", false);
     assertSame(toolResult, middleware.onEvent(ctx, toolResult));
 
-    AgentEvent toolError = new ToolResult("sql_query", "error msg", true);
+    AgentEvent toolError = new ToolResult("call_2", "sql_query", "error msg", true);
     assertSame(toolError, middleware.onEvent(ctx, toolError));
 
     AgentEvent error = new AgentError("something went wrong");

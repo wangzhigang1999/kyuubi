@@ -54,13 +54,17 @@ public interface AgentMiddleware {
 
   /** Called before each tool execution. Return non-null to deny the call. Runs first-to-last. */
   default ToolCallDenial beforeToolCall(
-      AgentContext ctx, String toolName, Map<String, Object> toolArgs) {
+      AgentContext ctx, String toolCallId, String toolName, Map<String, Object> toolArgs) {
     return null;
   }
 
   /**
-   * Called after each tool execution. Return non-null to override the tool result. Runs
-   * last-to-first.
+   * Called after each tool execution. Runs last-to-first.
+   *
+   * <p>Returns {@code String} (not {@code void}) so that middlewares can intercept and transform
+   * the tool result before it is fed back to the LLM — e.g. for data masking, output truncation, or
+   * injecting metadata. Return {@code null} to keep the original result unchanged; return a
+   * non-null value to replace it.
    */
   default String afterToolCall(
       AgentContext ctx, String toolName, Map<String, Object> toolArgs, String result) {

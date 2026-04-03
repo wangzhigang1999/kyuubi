@@ -49,6 +49,18 @@ public interface DataAgentProvider {
   void close(String sessionId);
 
   /**
+   * Resolve a pending tool approval request. Called when the client sends an approval or denial
+   * response for a tool call that requires human-in-the-loop confirmation.
+   *
+   * @param requestId the request ID from the ApprovalRequest event
+   * @param approved true to approve, false to deny
+   * @return true if the request was found and resolved, false if not found (timed out or invalid)
+   */
+  default boolean resolveApproval(String requestId, boolean approved) {
+    return false;
+  }
+
+  /**
    * Stop the provider itself, releasing engine-level resources shared across all sessions (e.g.
    * HTTP connection pools, thread pools). Called once when the entire engine shuts down.
    */

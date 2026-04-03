@@ -21,59 +21,45 @@ import java.util.Objects;
 import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
 
-public class ChatRequest {
-  private String text;
-  private String model;
-  private String approvalMode;
+/** Request body for approving or denying a tool call in the Data Agent. */
+public class ApprovalRequest {
+  private String requestId;
+  private boolean approved;
 
-  public ChatRequest() {}
+  public ApprovalRequest() {}
 
-  public ChatRequest(String text) {
-    this.text = text;
+  public ApprovalRequest(String requestId, boolean approved) {
+    this.requestId = requestId;
+    this.approved = approved;
   }
 
-  public ChatRequest(String text, String model) {
-    this.text = text;
-    this.model = model;
+  public String getRequestId() {
+    return requestId;
   }
 
-  public String getText() {
-    return text;
+  public void setRequestId(String requestId) {
+    this.requestId = requestId;
   }
 
-  public void setText(String text) {
-    this.text = text;
+  public boolean isApproved() {
+    return approved;
   }
 
-  public String getModel() {
-    return model;
-  }
-
-  public void setModel(String model) {
-    this.model = model;
-  }
-
-  public String getApprovalMode() {
-    return approvalMode;
-  }
-
-  public void setApprovalMode(String approvalMode) {
-    this.approvalMode = approvalMode;
+  public void setApproved(boolean approved) {
+    this.approved = approved;
   }
 
   @Override
   public boolean equals(Object o) {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
-    ChatRequest that = (ChatRequest) o;
-    return Objects.equals(getText(), that.getText())
-        && Objects.equals(getModel(), that.getModel())
-        && Objects.equals(getApprovalMode(), that.getApprovalMode());
+    ApprovalRequest that = (ApprovalRequest) o;
+    return approved == that.approved && Objects.equals(requestId, that.requestId);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(getText(), getModel(), getApprovalMode());
+    return Objects.hash(requestId, approved);
   }
 
   @Override

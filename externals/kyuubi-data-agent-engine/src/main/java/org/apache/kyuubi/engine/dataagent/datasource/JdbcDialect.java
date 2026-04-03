@@ -61,6 +61,9 @@ public interface JdbcDialect {
     if (lower.startsWith("jdbc:hive2:") || lower.startsWith("jdbc:spark:")) {
       return SparkDialect.INSTANCE;
     }
+    if (lower.startsWith("jdbc:sqlite:")) {
+      return SqliteDialect.INSTANCE;
+    }
     return null;
   }
 }

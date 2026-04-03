@@ -105,17 +105,22 @@ public class LoggingMiddleware implements AgentMiddleware {
     String content = response.content().map(Object::toString).orElse("");
     int toolCallCount = response.toolCalls().map(List::size).orElse(0);
     LOG.info(
-        "{}LLM response: step={}, content=\"{}\", tool_calls={}",
+        "{}LLM response: step={}, content=\"{}\", tool_calls={}, "
+            + "usage(cumulative): prompt={}, completion={}, total={}",
         prefix(),
         ctx.getIteration(),
         truncate(content),
-        toolCallCount);
+        toolCallCount,
+        ctx.getPromptTokens(),
+        ctx.getCompletionTokens(),
+        ctx.getTotalTokens());
   }
 
   @Override
   public ToolCallDenial beforeToolCall(
-      AgentContext ctx, String toolName, Map<String, Object> toolArgs) {
-    LOG.debug("{}Tool call: {} {}", prefix(), toolName, toolArgs);
+      AgentContext ctx, String toolCallId, String toolName, Map<String, Object> toolArgs) {
+    LOG.info("{}Tool call: id={}, name={}", prefix(), toolCallId, toolName);
+    LOG.debug("{}Tool args: {}", prefix(), toolArgs);
     return null;
   }
 

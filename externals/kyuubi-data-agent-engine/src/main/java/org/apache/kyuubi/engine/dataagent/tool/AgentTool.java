@@ -39,6 +39,14 @@ public interface AgentTool<T> {
   Class<T> argsType();
 
   /**
+   * Returns the risk level of this tool, used to determine whether user approval is required.
+   * Defaults to {@link ToolRiskLevel#SAFE}.
+   */
+  default ToolRiskLevel riskLevel() {
+    return ToolRiskLevel.SAFE;
+  }
+
+  /**
    * Execute the tool with the given deserialized arguments.
    *
    * @param args the deserialized arguments from the LLM's tool call

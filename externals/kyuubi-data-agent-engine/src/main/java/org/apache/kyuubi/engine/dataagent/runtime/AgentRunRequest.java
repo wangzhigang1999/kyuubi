@@ -31,7 +31,7 @@ public class AgentRunRequest {
 
   private final String userInput;
   private String modelName;
-  private ApprovalMode approvalMode = ApprovalMode.AUTO_APPROVE;
+  private ApprovalMode approvalMode = ApprovalMode.NORMAL;
 
   public AgentRunRequest(String userInput) {
     this.userInput = Objects.requireNonNull(userInput, "userInput must not be null");

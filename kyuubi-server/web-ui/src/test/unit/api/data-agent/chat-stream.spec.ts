@@ -15,187 +15,103 @@
  * limitations under the License.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { chatStream, SseEvent } from '@/api/data-agent'
 
-/**
- * Helper: create a mock fetch Response whose body is a ReadableStream
- * that yields the given string chunks sequentially.
- */
-function mockFetchWithChunks(chunks: string[]) {
-  const encoder = new TextEncoder()
-  let index = 0
+// Mock the auth store
+vi.mock('@/pinia/auth/auth', () => ({
+  useAuthStore: () => ({ isAuthenticated: false, authToken: '' })
+}))
 
-  const stream = new ReadableStream<Uint8Array>({
-    pull(controller) {
-      if (index < chunks.length) {
-        controller.enqueue(encoder.encode(chunks[index++]))
-      } else {
-        controller.close()
-      }
-    }
+// Capture the options passed to fetchEventSource so we can drive events manually
+let capturedOptions: any = null
+vi.mock('@microsoft/fetch-event-source', () => ({
+  fetchEventSource: vi.fn((_url: string, opts: any) => {
+    capturedOptions = opts
+    return Promise.resolve()
+  })
+}))
+
+describe('chatStream SSE via fetchEventSource', () => {
+  beforeEach(() => {
+    capturedOptions = null
   })
 
-  return vi.fn().mockResolvedValue({
-    ok: true,
-    body: stream
-  } as unknown as Response)
-}
-
-describe('chatStream SSE parser', () => {
-  const originalFetch = globalThis.fetch
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch
-  })
-
-  it('parses a single complete SSE event in one chunk', async () => {
+  it('forwards SSE events to the onEvent callback', async () => {
     const events: SseEvent[] = []
-    globalThis.fetch = mockFetchWithChunks([
-      'event: content\ndata: {"text":"hello"}\n\n'
+    const promise = chatStream('handle', 'hi', (e) => events.push(e))
+
+    // Simulate the library calling onmessage
+    capturedOptions.onmessage({ event: 'content_delta', data: '{"text":"hello"}' })
+    capturedOptions.onmessage({ event: 'done', data: '{}' })
+
+    await promise
+
+    expect(events).toEqual([
+      { event: 'content_delta', data: '{"text":"hello"}' },
+      { event: 'done', data: '{}' }
     ])
-
-    await chatStream('handle', 'hi', (e) => events.push(e))
-
-    expect(events).toEqual([{ event: 'content', data: '{"text":"hello"}' }])
   })
 
-  it('parses multiple complete SSE events in one chunk', async () => {
+  it('skips events without an event type', async () => {
     const events: SseEvent[] = []
-    globalThis.fetch = mockFetchWithChunks([
-      'event: content\ndata: {"text":"hello"}\n\nevent: done\ndata: {}\n\n'
-    ])
+    const promise = chatStream('handle', 'hi', (e) => events.push(e))
 
-    await chatStream('handle', 'hi', (e) => events.push(e))
+    capturedOptions.onmessage({ event: '', data: 'ignored' })
+    capturedOptions.onmessage({ event: 'content_delta', data: '{"text":"ok"}' })
 
-    expect(events).toHaveLength(2)
-    expect(events[0]).toEqual({ event: 'content', data: '{"text":"hello"}' })
-    expect(events[1]).toEqual({ event: 'done', data: '{}' })
-  })
-
-  it('handles SSE event split across two chunks (event in chunk1, data+blank in chunk2)', async () => {
-    const events: SseEvent[] = []
-    globalThis.fetch = mockFetchWithChunks([
-      'event: content\n',
-      'data: {"text":"hello"}\n\n'
-    ])
-
-    await chatStream('handle', 'hi', (e) => events.push(e))
+    await promise
 
     expect(events).toHaveLength(1)
-    expect(events[0]).toEqual({ event: 'content', data: '{"text":"hello"}' })
+    expect(events[0].event).toBe('content_delta')
   })
 
-  it('handles SSE event split across three chunks', async () => {
-    const events: SseEvent[] = []
-    globalThis.fetch = mockFetchWithChunks([
-      'event: content\n',
-      'data: {"text":"hello"}\n',
-      '\n'
-    ])
+  it('passes approvalMode in the request body', async () => {
+    const { fetchEventSource } = await import('@microsoft/fetch-event-source')
+    await chatStream('handle', 'hi', () => {}, undefined, 'STRICT')
 
-    await chatStream('handle', 'hi', (e) => events.push(e))
-
-    expect(events).toHaveLength(1)
-    expect(events[0]).toEqual({ event: 'content', data: '{"text":"hello"}' })
-  })
-
-  it('handles chunk boundary in the middle of a data line', async () => {
-    const events: SseEvent[] = []
-    globalThis.fetch = mockFetchWithChunks([
-      'event: content\ndata: {"text":"hel',
-      'lo"}\n\n'
-    ])
-
-    await chatStream('handle', 'hi', (e) => events.push(e))
-
-    expect(events).toHaveLength(1)
-    expect(events[0]).toEqual({ event: 'content', data: '{"text":"hello"}' })
-  })
-
-  it('handles multiple events with chunk boundaries between them', async () => {
-    const events: SseEvent[] = []
-    globalThis.fetch = mockFetchWithChunks([
-      'event: content\ndata: {"text":"The database"}\n\nevent: content\n',
-      'data: {"text":" contains **3 tables"}\n\nevent: content\ndata: {"text":"**:\\n\\n1"}\n\n',
-      'event: done\ndata: {}\n\n'
-    ])
-
-    await chatStream('handle', 'hi', (e) => events.push(e))
-
-    expect(events).toHaveLength(4)
-    expect(events[0].data).toBe('{"text":"The database"}')
-    expect(events[1].data).toBe('{"text":" contains **3 tables"}')
-    expect(events[2].data).toBe('{"text":"**:\\n\\n1"}')
-    expect(events[3]).toEqual({ event: 'done', data: '{}' })
-  })
-
-  it('handles blank line (event terminator) arriving in a separate chunk', async () => {
-    const events: SseEvent[] = []
-    globalThis.fetch = mockFetchWithChunks([
-      'event: content\ndata: {"text":"hello"}',
-      '\n\n'
-    ])
-
-    await chatStream('handle', 'hi', (e) => events.push(e))
-
-    expect(events).toHaveLength(1)
-    expect(events[0]).toEqual({ event: 'content', data: '{"text":"hello"}' })
-  })
-
-  it('throws on non-ok HTTP response with JSON error body', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 503,
-      statusText: 'Service Unavailable',
-      text: () => Promise.resolve('{"message":"Engine launch failed: connection refused"}')
-    } as unknown as Response)
-
-    await expect(chatStream('handle', 'hi', () => {})).rejects.toThrow(
-      'Engine launch failed: connection refused'
+    expect(fetchEventSource).toHaveBeenCalledWith(
+      '/api/v1/data-agent/handle/chat',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ text: 'hi', approvalMode: 'STRICT' })
+      })
     )
   })
 
-  it('throws on non-ok HTTP response with plain text body', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-      statusText: 'Internal Server Error',
-      text: () => Promise.resolve('server error')
-    } as unknown as Response)
+  it('passes abort signal through', async () => {
+    const { fetchEventSource } = await import('@microsoft/fetch-event-source')
+    const controller = new AbortController()
+    await chatStream('handle', 'hi', () => {}, controller.signal)
 
-    await expect(chatStream('handle', 'hi', () => {})).rejects.toThrow(
-      'server error'
+    expect(fetchEventSource).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ signal: controller.signal })
     )
   })
 
-  it('throws on non-ok HTTP response with empty body', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 503,
-      statusText: 'Service Unavailable',
-      text: () => Promise.resolve('')
-    } as unknown as Response)
+  it('propagates errors via onerror by rethrowing', async () => {
+    const promise = chatStream('handle', 'hi', () => {})
+    await promise // fetchEventSource is mocked to resolve immediately
 
-    await expect(chatStream('handle', 'hi', () => {})).rejects.toThrow(
-      'HTTP 503: Service Unavailable'
-    )
+    // Verify onerror rethrows
+    const err = new Error('connection lost')
+    expect(() => capturedOptions.onerror(err)).toThrow('connection lost')
   })
 
-  it('handles mixed event types (content, tool_call, tool_result, done)', async () => {
+  it('handles mixed event types', async () => {
     const events: SseEvent[] = []
-    const sseText = [
-      'event: content\ndata: {"text":"Let me check"}\n\n',
-      'event: tool_call\ndata: {"name":"sql","args":"SELECT 1"}\n\n',
-      'event: tool_result\ndata: {"name":"sql","output":"1"}\n\n',
-      'event: done\ndata: {}\n\n'
-    ].join('')
+    const promise = chatStream('handle', 'hi', (e) => events.push(e))
 
-    globalThis.fetch = mockFetchWithChunks([sseText])
-    await chatStream('handle', 'hi', (e) => events.push(e))
+    capturedOptions.onmessage({ event: 'content_delta', data: '{"text":"Let me check"}' })
+    capturedOptions.onmessage({ event: 'tool_call', data: '{"name":"sql","args":"SELECT 1"}' })
+    capturedOptions.onmessage({ event: 'tool_result', data: '{"name":"sql","output":"1"}' })
+    capturedOptions.onmessage({ event: 'done', data: '{}' })
+
+    await promise
 
     expect(events.map((e) => e.event)).toEqual([
-      'content',
+      'content_delta',
       'tool_call',
       'tool_result',
       'done'

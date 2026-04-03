@@ -48,6 +48,9 @@ public enum EventType {
   /** An error occurred during agent execution. */
   ERROR("error"),
 
+  /** The agent requires user approval before executing a tool. */
+  APPROVAL_REQUEST("approval_request"),
+
   /** The agent has finished its analysis. */
   AGENT_FINISH("agent_finish");
 

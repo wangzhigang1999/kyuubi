@@ -107,24 +107,22 @@ public class SqlQueryToolTest {
     assertEquals("SELECT 1", SqlQueryTool.stripMarkdown("SELECT 1"));
   }
 
-  // --- Read-only mode ---
+  // --- Write operations ---
 
   @Test
-  public void testReadOnlyModeRejectsWriteStatements() {
+  public void testAllowsInsert() {
     SqlQueryArgs args = new SqlQueryArgs();
     args.sql = "INSERT INTO large_table VALUES (9999, 'test-insert')";
     String result = tool.execute(args);
-    assertTrue(result.contains("Write operations"));
-    assertTrue(result.contains("not allowed"));
+    assertTrue(result.contains("1 row(s) affected"));
   }
 
   @Test
-  public void testNonReadOnlyModeAllowsWriteStatements() {
-    SqlQueryTool writableTool = new SqlQueryTool(ds, 30, false);
+  public void testAllowsCreateTable() {
     SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "INSERT INTO large_table VALUES (9999, 'test-insert')";
-    String result = writableTool.execute(args);
-    assertTrue(result.contains("1 row(s) affected"));
+    args.sql = "CREATE TABLE test_write (id INTEGER PRIMARY KEY, value TEXT)";
+    String result = tool.execute(args);
+    assertTrue(result.contains("executed successfully"));
   }
 
   @Test
@@ -139,7 +137,7 @@ public class SqlQueryToolTest {
 
   @Test
   public void testCustomQueryTimeout() {
-    SqlQueryTool customTool = new SqlQueryTool(ds, 5, true);
+    SqlQueryTool customTool = new SqlQueryTool(ds, 5);
     SqlQueryArgs args = new SqlQueryArgs();
     args.sql = "SELECT COUNT(*) FROM large_table";
     String result = customTool.execute(args);

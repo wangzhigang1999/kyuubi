@@ -42,6 +42,124 @@
               v-html="renderMarkdown(block.text || '')"></div>
           </div>
 
+          <!-- Approval request block: pending state -->
+          <div
+            v-if="block.type === 'approval_request' && block.approvalStatus === 'pending'"
+            class="approval-block">
+            <div class="approval-header">
+              <div class="approval-icon">
+                <el-icon :size="16" color="#e6a23c"><Warning /></el-icon>
+              </div>
+              <div class="approval-info">
+                <span class="approval-title">Approval Required</span>
+                <span class="approval-tool">
+                  <span class="tool-name-inline">{{ block.name }}</span>
+                  <el-tag size="small" type="danger" effect="plain">{{ block.riskLevel }}</el-tag>
+                </span>
+              </div>
+            </div>
+            <div v-if="block.args" class="approval-args">
+              <div class="tool-section-label">Arguments</div>
+              <pre class="tool-pre">{{ formatArgs(block.args) }}</pre>
+            </div>
+            <div class="approval-actions">
+              <el-button
+                type="primary"
+                size="small"
+                :icon="Check"
+                @click="emit('approve', block.requestId!)">
+                Approve
+              </el-button>
+              <el-button
+                type="danger"
+                size="small"
+                plain
+                :icon="Close"
+                @click="emit('deny', block.requestId!)">
+                Deny
+              </el-button>
+            </div>
+          </div>
+
+          <!-- Approval request block: resolved — renders like a normal tool_call -->
+          <div
+            v-if="block.type === 'approval_request' && block.approvalStatus !== 'pending'"
+            class="tool-call-block">
+            <div class="tool-header" @click="block.expanded = !block.expanded">
+              <div class="tool-header-left">
+                <div
+                  class="tool-dot"
+                  :class="{
+                    'is-running': block.result == null && block.approvalStatus === 'approved',
+                    'is-done': block.result != null && !block.isError,
+                    'is-error': block.isError || block.approvalStatus === 'denied'
+                  }"></div>
+                <span class="tool-name">{{ block.name }}</span>
+                <el-tag
+                  :type="block.approvalStatus === 'approved' ? 'success' : 'danger'"
+                  effect="plain"
+                  size="small">
+                  {{ block.approvalStatus === 'approved' ? 'Approved' : 'Denied' }}
+                </el-tag>
+              </div>
+              <div class="tool-header-right">
+                <span
+                  class="tool-status"
+                  :class="{
+                    'is-running': block.result == null && block.approvalStatus === 'approved',
+                    'is-done': block.result != null && !block.isError,
+                    'is-error': block.isError || block.approvalStatus === 'denied'
+                  }">
+                  {{
+                    block.approvalStatus === 'denied'
+                      ? 'Denied'
+                      : block.result != null
+                        ? block.isError ? 'Error' : 'Done'
+                        : 'Running...'
+                  }}
+                </span>
+                <el-icon
+                  class="chevron"
+                  :class="{ 'is-expanded': block.expanded }">
+                  <ArrowDown />
+                </el-icon>
+              </div>
+            </div>
+            <Transition name="tool-expand">
+              <div v-if="block.expanded" class="tool-body">
+                <div v-if="block.args" class="tool-section">
+                  <div class="tool-section-label">Arguments</div>
+                  <div class="tool-pre-wrapper">
+                    <pre class="tool-pre">{{ formatArgs(block.args) }}</pre>
+                    <button
+                      class="copy-btn"
+                      title="Copy"
+                      @click.stop="copyText(block.args || '')">
+                      <el-icon :size="12"><DocumentCopy /></el-icon>
+                    </button>
+                  </div>
+                </div>
+                <div v-if="block.result != null" class="tool-section">
+                  <div class="tool-section-label">Result</div>
+                  <div v-if="block.isError" class="tool-pre-wrapper">
+                    <pre class="tool-pre is-error">{{ block.result }}</pre>
+                  </div>
+                  <div v-else class="tool-result-markdown">
+                    <div
+                      class="markdown-body"
+                      v-html="renderMarkdown(block.result || '')"></div>
+                    <button
+                      class="copy-btn"
+                      title="Copy"
+                      @click.stop="copyText(block.result || '')">
+                      <el-icon :size="12"><DocumentCopy /></el-icon>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </Transition>
+          </div>
+
           <!-- Tool call block -->
           <div v-if="block.type === 'tool_call'" class="tool-call-block">
             <div class="tool-header" @click="block.expanded = !block.expanded">
@@ -135,19 +253,28 @@
     User,
     ChatDotRound,
     ArrowDown,
-    DocumentCopy
+    DocumentCopy,
+    Check,
+    Close,
+    Warning
   } from '@element-plus/icons-vue'
   import { marked } from 'marked'
+  import DOMPurify from 'dompurify'
   import { ElMessage } from 'element-plus'
 
   export interface ChatBlock {
-    type: 'text' | 'tool_call'
+    type: 'text' | 'tool_call' | 'approval_request'
+    toolCallId?: string
     text?: string
     name?: string
     args?: string
     result?: string
     isError?: boolean
     expanded?: boolean
+    // approval_request fields
+    requestId?: string
+    riskLevel?: string
+    approvalStatus?: 'pending' | 'approved' | 'denied'
   }
 
   defineProps<{
@@ -157,12 +284,17 @@
     streaming?: boolean
   }>()
 
+  const emit = defineEmits<{
+    (e: 'approve', requestId: string): void
+    (e: 'deny', requestId: string): void
+  }>()
+
   function renderMarkdown(content: string): string {
     if (!content) return ''
     try {
-      return marked.parse(content, { async: false }) as string
+      return DOMPurify.sanitize(marked.parse(content, { async: false }) as string)
     } catch {
-      return content
+      return DOMPurify.sanitize(content)
     }
   }
 
@@ -230,7 +362,7 @@
 
   .assistant-bubble {
     max-width: 85%;
-    min-width: 0;
+    min-width: min(480px, 100%);
     background: #fff;
     border: 1px solid #e5e6eb;
     border-radius: 4px 16px 16px 16px;
@@ -307,6 +439,55 @@
         margin: 2px 0;
       }
     }
+  }
+
+  // Approval request block
+  .approval-block {
+    padding: 12px 14px;
+    background: #fffbe6;
+    border-left: 3px solid #e6a23c;
+  }
+  .approval-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .approval-icon {
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .approval-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .approval-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #303133;
+  }
+  .approval-tool {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #606266;
+  }
+  .tool-name-inline {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-weight: 600;
+  }
+  .approval-args {
+    margin: 8px 0;
+    margin-left: 26px;
+  }
+  .approval-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 26px;
+    margin-top: 10px;
   }
 
   // Tool call block
@@ -504,6 +685,27 @@
       position: absolute;
       top: 6px;
       right: 6px;
+      width: 24px;
+      height: 24px;
+      border: none;
+      border-radius: 4px;
+      background: rgba(0, 0, 0, 0.04);
+      color: #86909c;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: all 0.15s;
+
+      &:hover {
+        background: rgba(0, 0, 0, 0.08);
+        color: #4e5969;
+      }
+    }
+
+    &:hover .copy-btn {
+      opacity: 1;
     }
   }
 

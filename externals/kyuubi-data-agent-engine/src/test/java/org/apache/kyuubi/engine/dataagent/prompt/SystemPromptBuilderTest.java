@@ -99,7 +99,13 @@ public class SystemPromptBuilderTest {
   @Test
   public void testJdbcUrlUnknownIgnored() {
     String plain = SystemPromptBuilder.create().build();
-    assertEquals(plain, SystemPromptBuilder.create().jdbcUrl("jdbc:sqlite:/tmp/test.db").build());
+    assertEquals(plain, SystemPromptBuilder.create().jdbcUrl("jdbc:derby://localhost/db").build());
+  }
+
+  @Test
+  public void testJdbcUrlSqliteAppliesDialect() {
+    String prompt = SystemPromptBuilder.create().jdbcUrl("jdbc:sqlite:/tmp/test.db").build();
+    assertTrue(prompt.contains("SQLite SQL compatibility"));
   }
 
   @Test

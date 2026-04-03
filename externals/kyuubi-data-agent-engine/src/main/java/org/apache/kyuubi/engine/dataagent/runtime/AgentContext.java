@@ -17,6 +17,9 @@
 
 package org.apache.kyuubi.engine.dataagent.runtime;
 
+import java.util.function.Consumer;
+import org.apache.kyuubi.engine.dataagent.runtime.event.AgentEvent;
+
 /**
  * Mutable context passed through the middleware pipeline and agent loop. Tracks the current state
  * of agent execution including iteration count, token usage, and custom middleware state.
@@ -24,6 +27,7 @@ package org.apache.kyuubi.engine.dataagent.runtime;
 public class AgentContext {
 
   private final ConversationMemory memory;
+  private Consumer<AgentEvent> eventEmitter;
   private int iteration;
   private long promptTokens;
   private long completionTokens;
@@ -72,5 +76,16 @@ public class AgentContext {
 
   public void setApprovalMode(ApprovalMode approvalMode) {
     this.approvalMode = approvalMode;
+  }
+
+  public void setEventEmitter(Consumer<AgentEvent> eventEmitter) {
+    this.eventEmitter = eventEmitter;
+  }
+
+  /** Emit an event through the agent's event pipeline. Available for use by middlewares. */
+  public void emit(AgentEvent event) {
+    if (eventEmitter != null) {
+      eventEmitter.accept(event);
+    }
   }
 }

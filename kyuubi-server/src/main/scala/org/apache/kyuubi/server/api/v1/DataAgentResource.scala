@@ -31,7 +31,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.tags.Tag
 
 import org.apache.kyuubi.Logging
-import org.apache.kyuubi.client.api.v1.dto.ChatRequest
+import org.apache.kyuubi.client.api.v1.dto.{ApprovalRequest, ChatRequest}
 import org.apache.kyuubi.operation.{FetchOrientation, OperationState}
 import org.apache.kyuubi.server.api.ApiRequestContext
 import org.apache.kyuubi.session.{KyuubiSessionImpl, SessionHandle}
@@ -99,10 +99,13 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
 
       // Execute statement asynchronously on the engine
       info(s"Data Agent chat: session=$sessionHandleStr, text=${text.take(100)}")
-      val confOverlay = Option(request.getModel)
+      var confOverlay = Option(request.getModel)
         .filter(_.nonEmpty)
         .map(m => Map("kyuubi.engine.data.agent.llm.model" -> m))
         .getOrElse(Map.empty[String, String])
+      Option(request.getApprovalMode).filter(_.nonEmpty).foreach { mode =>
+        confOverlay = confOverlay + ("kyuubi.engine.data.agent.approval.mode" -> mode)
+      }
       val opHandle = client.executeStatement(text, confOverlay, true, 0L)
 
       try {
@@ -131,6 +134,48 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
         if (!response.isCommitted) {
           sendJsonError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, e.getMessage)
         }
+    }
+  }
+
+
+
+  @ApiResponse(
+    responseCode = "200",
+    content = Array(new Content(mediaType = MediaType.APPLICATION_JSON)),
+    description = "Approve or deny a pending tool call")
+  @POST
+  @Path("{sessionHandle}/approve")
+  @Produces(Array(MediaType.APPLICATION_JSON))
+  def approve(
+      @PathParam("sessionHandle") sessionHandleStr: String,
+      request: ApprovalRequest): String = {
+    val sessionHandle = SessionHandle.fromUUID(sessionHandleStr)
+    val session = fe.be.sessionManager.getSession(sessionHandle)
+      .asInstanceOf[KyuubiSessionImpl]
+    val client = session.client
+    if (client == null) {
+      throw new WebApplicationException("Engine session is not ready", 503)
+    }
+
+    val requestId = request.getRequestId
+    if (requestId == null || requestId.trim.isEmpty) {
+      throw new WebApplicationException("requestId is required", 400)
+    }
+
+    val statement = if (request.isApproved) {
+      s"__approve:$requestId"
+    } else {
+      s"__deny:$requestId"
+    }
+
+    val opHandle = client.executeStatement(statement, Map.empty[String, String], false, 0L)
+    try {
+      val rowSet = client.fetchResults(opHandle, FetchOrientation.FETCH_NEXT, 1, false)
+      val rows = extractStringRows(rowSet)
+      rows.headOption.getOrElse(
+        s"""{"status":"error","requestId":"${escapeJson(requestId)}","message":"No result returned"}""")
+    } finally {
+      closeOperation(client, opHandle)
     }
   }
 
@@ -174,8 +219,12 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
   private def waitForRunning(
       client: org.apache.kyuubi.client.KyuubiSyncThriftClient,
       opHandle: TOperationHandle): Unit = {
+    val deadline = System.currentTimeMillis() + 120000 // 2 minutes
     var ready = false
     while (!ready) {
+      if (System.currentTimeMillis() > deadline) {
+        throw new IllegalStateException("Operation did not start within 120 seconds")
+      }
       val state = client.getOperationStatus(opHandle).getOperationState
       state match {
         case TOperationState.INITIALIZED_STATE | TOperationState.PENDING_STATE =>
@@ -250,11 +299,17 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
 
   private def escapeJson(s: String): String = {
     if (s == null) return ""
-    s.replace("\\", "\\\\")
-      .replace("\"", "\\\"")
-      .replace("\n", "\\n")
-      .replace("\r", "\\r")
-      .replace("\t", "\\t")
+    val sb = new StringBuilder(s.length)
+    s.foreach {
+      case '\\' => sb.append("\\\\")
+      case '"' => sb.append("\\\"")
+      case '\n' => sb.append("\\n")
+      case '\r' => sb.append("\\r")
+      case '\t' => sb.append("\\t")
+      case c if c < 0x20 => sb.append("\\u%04x".format(c.toInt))
+      case c => sb.append(c)
+    }
+    sb.toString
   }
 
   private def sendJsonError(

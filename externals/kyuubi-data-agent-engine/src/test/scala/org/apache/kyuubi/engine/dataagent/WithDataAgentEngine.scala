@@ -46,7 +46,9 @@ trait WithDataAgentEngine extends KyuubiFunSuite {
   }
 
   def startEngine(): Unit = {
-    withKyuubiConf.foreach { case (k, v) =>
+    val conf = withKyuubiConf ++ Map(
+      KyuubiConf.FRONTEND_THRIFT_BINARY_BIND_PORT.key -> "0")
+    conf.foreach { case (k, v) =>
       System.setProperty(k, v)
       kyuubiConf.set(k, v)
     }

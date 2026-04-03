@@ -27,7 +27,7 @@ import org.apache.kyuubi.shaded.hive.service.rpc.thrift._
 
 abstract class DataAgentOperation(session: Session) extends AbstractOperation(session) {
 
-  protected var iter: FetchIterator[Array[String]] = _
+  @volatile protected var iter: FetchIterator[Array[String]] = _
 
   protected lazy val conf: KyuubiConf = session.sessionManager.getConf
 

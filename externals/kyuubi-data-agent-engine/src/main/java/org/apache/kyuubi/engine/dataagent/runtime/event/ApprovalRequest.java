@@ -20,21 +20,39 @@ package org.apache.kyuubi.engine.dataagent.runtime.event;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.apache.kyuubi.engine.dataagent.tool.ToolRiskLevel;
 
-/** The agent is about to invoke a tool. */
-public final class ToolCall extends AgentEvent {
+/**
+ * Emitted when the agent requires user approval before executing a tool. The client should present
+ * this to the user and respond with an approval or denial via the approval channel.
+ */
+public final class ApprovalRequest extends AgentEvent {
+
+  private final String requestId;
   private final String toolCallId;
   private final String toolName;
   private final Map<String, Object> toolArgs;
+  private final ToolRiskLevel riskLevel;
 
-  public ToolCall(String toolCallId, String toolName, Map<String, Object> toolArgs) {
-    super(EventType.TOOL_CALL);
+  public ApprovalRequest(
+      String requestId,
+      String toolCallId,
+      String toolName,
+      Map<String, Object> toolArgs,
+      ToolRiskLevel riskLevel) {
+    super(EventType.APPROVAL_REQUEST);
+    this.requestId = requestId;
     this.toolCallId = toolCallId;
     this.toolName = toolName;
     this.toolArgs =
         toolArgs != null
             ? Collections.unmodifiableMap(new LinkedHashMap<>(toolArgs))
             : Collections.emptyMap();
+    this.riskLevel = riskLevel;
+  }
+
+  public String requestId() {
+    return requestId;
   }
 
   public String toolCallId() {
@@ -49,14 +67,18 @@ public final class ToolCall extends AgentEvent {
     return toolArgs;
   }
 
+  public ToolRiskLevel riskLevel() {
+    return riskLevel;
+  }
+
   @Override
   public String toString() {
-    return "ToolCall{id='"
-        + toolCallId
+    return "ApprovalRequest{requestId='"
+        + requestId
         + "', toolName='"
         + toolName
-        + "', toolArgs="
-        + toolArgs
+        + "', riskLevel="
+        + riskLevel
         + "}";
   }
 }

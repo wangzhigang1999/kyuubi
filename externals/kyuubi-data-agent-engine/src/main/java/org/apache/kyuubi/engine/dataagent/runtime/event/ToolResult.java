@@ -19,15 +19,21 @@ package org.apache.kyuubi.engine.dataagent.runtime.event;
 
 /** The result of a tool invocation. */
 public final class ToolResult extends AgentEvent {
+  private final String toolCallId;
   private final String toolName;
   private final String output;
   private final boolean isError;
 
-  public ToolResult(String toolName, String output, boolean isError) {
+  public ToolResult(String toolCallId, String toolName, String output, boolean isError) {
     super(EventType.TOOL_RESULT);
+    this.toolCallId = toolCallId;
     this.toolName = toolName;
     this.output = output;
     this.isError = isError;
+  }
+
+  public String toolCallId() {
+    return toolCallId;
   }
 
   public String toolName() {
@@ -44,7 +50,9 @@ public final class ToolResult extends AgentEvent {
 
   @Override
   public String toString() {
-    return "ToolResult{toolName='"
+    return "ToolResult{id='"
+        + toolCallId
+        + "', toolName='"
         + toolName
         + "', isError="
         + isError

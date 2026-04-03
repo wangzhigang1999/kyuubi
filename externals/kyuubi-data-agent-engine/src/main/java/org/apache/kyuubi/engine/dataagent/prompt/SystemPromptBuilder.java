@@ -23,7 +23,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -122,7 +121,7 @@ public final class SystemPromptBuilder {
     String result = base.replace("{{tool_descriptions}}", toolDescriptions);
 
     StringBuilder sb = new StringBuilder(result);
-    sb.append("\n\nToday's date: ").append(LocalDate.now(ZoneOffset.UTC)).append(".");
+    sb.append("\n\nToday's date: ").append(LocalDate.now()).append(".");
     for (String section : sections) {
       sb.append("\n\n").append(section);
     }

@@ -53,6 +53,12 @@ public class ToolRegistry {
     return tools.isEmpty();
   }
 
+  /** Returns the risk level of the named tool, or {@link ToolRiskLevel#SAFE} if not found. */
+  public synchronized ToolRiskLevel getRiskLevel(String toolName) {
+    AgentTool<?> tool = tools.get(toolName);
+    return tool != null ? tool.riskLevel() : ToolRiskLevel.SAFE;
+  }
+
   /** Add all tools to the ChatCompletion request builder. */
   public void addToolsTo(ChatCompletionCreateParams.Builder builder) {
     Map<String, ChatCompletionTool> specs = ensureSpecs();
@@ -80,8 +86,11 @@ public class ToolRegistry {
    * @return the result string, or an error message
    */
   @SuppressWarnings("unchecked")
-  public synchronized String executeTool(String toolName, String argsJson) {
-    AgentTool<?> tool = tools.get(toolName);
+  public String executeTool(String toolName, String argsJson) {
+    AgentTool<?> tool;
+    synchronized (this) {
+      tool = tools.get(toolName);
+    }
     if (tool == null) {
       return "Error: unknown tool '" + toolName + "'";
     }

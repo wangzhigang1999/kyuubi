@@ -52,7 +52,8 @@ public class ReactAgentLiveTest {
   private static final String MODEL_NAME =
       System.getenv().getOrDefault("DASHSCOPE_MODEL", "qwen-plus");
 
-  private static final String SYSTEM_PROMPT = SystemPromptBuilder.create().build();
+  private static final String SYSTEM_PROMPT =
+      SystemPromptBuilder.create().jdbcUrl("jdbc:sqlite:test.db").build();
 
   private final List<File> tempFiles = new ArrayList<>();
   private OpenAIClient client;

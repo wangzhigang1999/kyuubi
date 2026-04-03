@@ -25,7 +25,7 @@ import org.slf4j.MDC
 import org.apache.kyuubi.{KyuubiSQLException, Logging}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.engine.dataagent.provider.{DataAgentProvider, ProviderRunRequest}
-import org.apache.kyuubi.engine.dataagent.runtime.event.{AgentError, AgentEvent, AgentFinish, ContentDelta, EventType, StepEnd, StepStart, ToolCall, ToolResult}
+import org.apache.kyuubi.engine.dataagent.runtime.event.{AgentError, AgentEvent, AgentFinish, ApprovalRequest, ContentDelta, EventType, StepEnd, StepStart, ToolCall, ToolResult}
 import org.apache.kyuubi.operation.OperationState
 import org.apache.kyuubi.operation.log.OperationLog
 import org.apache.kyuubi.session.Session
@@ -86,7 +86,13 @@ class ExecuteStatement(
       MDC.put("operationId", operationId)
       MDC.put("sessionId", sessionId)
       val request = new ProviderRunRequest(statement)
-      confOverlay.get(KyuubiConf.ENGINE_DATA_AGENT_LLM_MODEL.key).foreach(request.modelName)
+      // Merge session-level conf with per-statement confOverlay (overlay takes precedence)
+      val mergedConf = session.conf ++ confOverlay
+      mergedConf.get(KyuubiConf.ENGINE_DATA_AGENT_LLM_MODEL.key).foreach(request.modelName)
+      val approvalMode = mergedConf.getOrElse(
+        KyuubiConf.ENGINE_DATA_AGENT_APPROVAL_MODE.key,
+        session.sessionManager.getConf.get(KyuubiConf.ENGINE_DATA_AGENT_APPROVAL_MODE))
+      request.approvalMode(approvalMode)
 
       val eventConsumer: AgentEvent => Unit = { (event: AgentEvent) =>
         val sseType = event.eventType().sseEventName()
@@ -109,6 +115,7 @@ class ExecuteStatement(
             val toolCall = event.asInstanceOf[ToolCall]
             incrementalIter.append(Array(toJson { n =>
               n.put("type", sseType)
+              n.put("id", toolCall.toolCallId())
               n.put("name", toolCall.toolName())
               n.put("args", toolCall.toolArgs().toString)
             }))
@@ -116,6 +123,7 @@ class ExecuteStatement(
             val toolResult = event.asInstanceOf[ToolResult]
             incrementalIter.append(Array(toJson { n =>
               n.put("type", sseType)
+              n.put("id", toolResult.toolCallId())
               n.put("name", toolResult.toolName())
               n.put("output", toolResult.output())
             }))
@@ -128,6 +136,16 @@ class ExecuteStatement(
             val err = event.asInstanceOf[AgentError]
             incrementalIter.append(Array(toJson { n =>
               n.put("type", sseType); n.put("message", err.message())
+            }))
+          case EventType.APPROVAL_REQUEST =>
+            val req = event.asInstanceOf[ApprovalRequest]
+            incrementalIter.append(Array(toJson { n =>
+              n.put("type", sseType)
+              n.put("requestId", req.requestId())
+              n.put("id", req.toolCallId())
+              n.put("name", req.toolName())
+              n.put("args", req.toolArgs().toString)
+              n.put("riskLevel", req.riskLevel().name())
             }))
           case EventType.AGENT_FINISH =>
             val finish = event.asInstanceOf[AgentFinish]

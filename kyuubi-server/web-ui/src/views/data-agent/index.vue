@@ -44,6 +44,24 @@
         </el-tag>
       </div>
       <div class="header-right">
+        <el-tooltip
+          content="Controls whether tool calls require your approval before execution"
+          placement="bottom"
+          :show-after="500">
+          <el-select
+            v-model="approvalMode"
+            size="small"
+            style="width: 160px"
+            :disabled="streaming"
+            @change="onApprovalModeChange">
+            <template #prefix>
+              <el-icon :size="14"><Lock /></el-icon>
+            </template>
+            <el-option label="Auto Approve" value="AUTO_APPROVE" />
+            <el-option label="Normal" value="NORMAL" />
+            <el-option label="Strict" value="STRICT" />
+          </el-select>
+        </el-tooltip>
         <el-button
           v-if="streaming"
           size="small"
@@ -142,7 +160,9 @@
           :role="msg.role"
           :text="msg.text"
           :blocks="msg.blocks"
-          :streaming="streaming && msg.id === messages[messages.length - 1]?.id" />
+          :streaming="streaming && msg.id === messages[messages.length - 1]?.id"
+          @approve="(id: string) => handleApproval(id, true)"
+          @deny="(id: string) => handleApproval(id, false)" />
       </TransitionGroup>
 
       <!-- Error display -->
@@ -185,6 +205,7 @@
     ChatDotRound,
     ChatLineSquare,
     RefreshRight,
+    Lock,
     WarningFilled,
     Close,
     Loading,
@@ -199,7 +220,7 @@
   import ChatMessage from './components/ChatMessage.vue'
   import type { ChatBlock } from './components/ChatMessage.vue'
   import InputBar from './components/InputBar.vue'
-  import { openSession, closeSession, chatStream } from '@/api/data-agent'
+  import { openSession, closeSession, getSession, chatStream, approveToolCall } from '@/api/data-agent'
 
   interface Message {
     id: number
@@ -231,6 +252,7 @@
     msgIdCounter: number
     selectedEngine: string
     jdbcUrl: string
+    approvalMode: string
   }
 
   function saveState() {
@@ -239,7 +261,8 @@
       messages: messages.value,
       msgIdCounter,
       selectedEngine: selectedEngine.value,
-      jdbcUrl: jdbcUrl.value
+      jdbcUrl: jdbcUrl.value,
+      approvalMode: approvalMode.value
     }
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state))
   }
@@ -254,6 +277,7 @@
       msgIdCounter = state.msgIdCounter || 0
       selectedEngine.value = state.selectedEngine || ''
       jdbcUrl.value = state.jdbcUrl || ''
+      approvalMode.value = state.approvalMode || 'NORMAL'
     } catch {
       sessionStorage.removeItem(STORAGE_KEY)
     }
@@ -265,6 +289,12 @@
 
   const selectedEngine = ref('')
   const jdbcUrl = ref('')
+  const APPROVAL_MODE_KEY = 'data-agent-approval-mode'
+  const approvalMode = ref(localStorage.getItem(APPROVAL_MODE_KEY) || 'NORMAL')
+
+  function onApprovalModeChange(val: string) {
+    localStorage.setItem(APPROVAL_MODE_KEY, val)
+  }
 
   function onEngineChange(engine: string) {
     if (engine) {
@@ -304,7 +334,16 @@
   })
 
   async function ensureSession(): Promise<boolean> {
-    if (sessionHandle.value) return true
+    if (sessionHandle.value) {
+      try {
+        await getSession(sessionHandle.value)
+        return true
+      } catch {
+        sessionHandle.value = ''
+        ElMessage.warning('Session has expired. Please click "New Chat" to start a new conversation.')
+        return false
+      }
+    }
     initializing.value = true
     try {
       const configs: Record<string, string> = {
@@ -365,7 +404,8 @@
         sessionHandle.value,
         text,
         (event) => handleSseEvent(assistantMsg, event),
-        abortController.signal
+        abortController.signal,
+        approvalMode.value
       )
     } catch (e: any) {
       if (e.name !== 'AbortError') {
@@ -390,7 +430,7 @@
     }
 
     switch (event.event) {
-      case 'content': {
+      case 'content_delta': {
         const text = parsed.text || ''
         if (!text) break
         const last = blocks[blocks.length - 1]
@@ -401,24 +441,47 @@
         }
         break
       }
-      case 'tool_call':
-        blocks.push({
-          type: 'tool_call',
-          name: parsed.name,
-          args: parsed.args,
-          expanded: false
-        })
+      case 'tool_call': {
+        const toolCallId = parsed.id
+        // Skip if an approval_request block already exists for this tool call
+        const hasApproval = blocks.some(
+          (b) =>
+            b.type === 'approval_request' && b.toolCallId === toolCallId
+        )
+        if (!hasApproval) {
+          blocks.push({
+            type: 'tool_call',
+            toolCallId,
+            name: parsed.name,
+            args: parsed.args,
+            expanded: false
+          })
+        }
         break
+      }
       case 'tool_result':
         for (let i = blocks.length - 1; i >= 0; i--) {
+          const b = blocks[i]
           if (
-            blocks[i].type === 'tool_call' &&
-            blocks[i].name === parsed.name
+            (b.type === 'tool_call' || b.type === 'approval_request') &&
+            b.toolCallId === parsed.id
           ) {
-            blocks[i].result = parsed.output
+            b.result = parsed.output
+            b.isError = !!parsed.isError
             break
           }
         }
+        break
+      case 'approval_request':
+        blocks.push({
+          type: 'approval_request',
+          toolCallId: parsed.id,
+          name: parsed.name,
+          args: parsed.args,
+          requestId: parsed.requestId,
+          riskLevel: parsed.riskLevel,
+          approvalStatus: 'pending'
+        })
         break
       case 'error':
         errorMessage.value = parsed.message || 'Unknown error'
@@ -427,6 +490,25 @@
         break
     }
     scrollToBottom()
+  }
+
+  async function handleApproval(requestId: string, approved: boolean) {
+    if (!sessionHandle.value) return
+    // Update block status immediately for responsiveness
+    for (const msg of messages.value) {
+      if (!msg.blocks) continue
+      for (const block of msg.blocks) {
+        if (block.type === 'approval_request' && block.requestId === requestId) {
+          if (block.approvalStatus !== 'pending') return // prevent double-click
+          block.approvalStatus = approved ? 'approved' : 'denied'
+        }
+      }
+    }
+    try {
+      await approveToolCall(sessionHandle.value, requestId, approved)
+    } catch (e: any) {
+      errorMessage.value = `Approval failed: ${e.message}`
+    }
   }
 
   function cancelStream() {
@@ -440,9 +522,15 @@
     })
   }
 
+  let saveTimer: ReturnType<typeof setTimeout> | null = null
+  function debouncedSave() {
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(saveState, 500)
+  }
+
   watch(
-    [sessionHandle, messages, selectedEngine, jdbcUrl],
-    () => saveState(),
+    [sessionHandle, messages, selectedEngine, jdbcUrl, approvalMode],
+    () => debouncedSave(),
     { deep: true }
   )
 
@@ -453,7 +541,10 @@
     }
   })
 
-  onBeforeUnmount(() => cancelStream())
+  onBeforeUnmount(() => {
+    cancelStream()
+    if (saveTimer) clearTimeout(saveTimer)
+  })
 </script>
 
 <style lang="scss" scoped>

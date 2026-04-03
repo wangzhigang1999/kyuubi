@@ -23,6 +23,7 @@ import java.sql.ResultSetMetaData;
 import java.sql.Statement;
 import javax.sql.DataSource;
 import org.apache.kyuubi.engine.dataagent.tool.AgentTool;
+import org.apache.kyuubi.engine.dataagent.tool.ToolRiskLevel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,22 +32,22 @@ public class SqlQueryTool implements AgentTool<SqlQueryArgs> {
 
   private static final Logger LOG = LoggerFactory.getLogger(SqlQueryTool.class);
 
-  private static final int DEFAULT_QUERY_TIMEOUT_SECONDS = 30;
+  /** Fallback used only by the CLI entry point; server-side reads from KyuubiConf. */
+  private static final int DEFAULT_QUERY_TIMEOUT_SECONDS = 300;
+
   private static final int MAX_ROWS_HARD_LIMIT = 1000;
   private static final int MAX_OUTPUT_CHARS = 65536;
 
   private final DataSource dataSource;
   private final int queryTimeoutSeconds;
-  private final boolean readOnly;
 
   public SqlQueryTool(DataSource dataSource) {
-    this(dataSource, DEFAULT_QUERY_TIMEOUT_SECONDS, true);
+    this(dataSource, DEFAULT_QUERY_TIMEOUT_SECONDS);
   }
 
-  public SqlQueryTool(DataSource dataSource, int queryTimeoutSeconds, boolean readOnly) {
+  public SqlQueryTool(DataSource dataSource, int queryTimeoutSeconds) {
     this.dataSource = dataSource;
     this.queryTimeoutSeconds = queryTimeoutSeconds;
-    this.readOnly = readOnly;
   }
 
   @Override
@@ -56,9 +57,14 @@ public class SqlQueryTool implements AgentTool<SqlQueryArgs> {
 
   @Override
   public String description() {
-    return "Execute a SQL query against the database and return the results. "
-        + "Supports SELECT, SHOW, DESCRIBE, and other read-only statements. "
+    return "Execute a SQL statement against the database and return the results. "
+        + "Supports all SQL statements including SELECT, INSERT, UPDATE, DELETE, DDL, etc. "
         + "Parameter 'sql' is required.";
+  }
+
+  @Override
+  public ToolRiskLevel riskLevel() {
+    return ToolRiskLevel.DESTRUCTIVE;
   }
 
   @Override
@@ -75,12 +81,6 @@ public class SqlQueryTool implements AgentTool<SqlQueryArgs> {
 
     // Strip markdown code block if present
     sql = stripMarkdown(sql);
-
-    // Reject write operations in read-only mode
-    if (readOnly && isWriteStatement(sql)) {
-      return "Error: Write operations (INSERT, UPDATE, DELETE, DROP, etc.) are not allowed. "
-          + "Only SELECT and read-only statements are permitted.";
-    }
 
     int maxRows =
         (args.maxRows != null && args.maxRows > 0)
@@ -152,20 +152,6 @@ public class SqlQueryTool implements AgentTool<SqlQueryArgs> {
         + "\n\n[Output truncated at "
         + MAX_OUTPUT_CHARS
         + " characters]";
-  }
-
-  static boolean isWriteStatement(String sql) {
-    String upper = sql.trim().toUpperCase();
-    return upper.startsWith("INSERT")
-        || upper.startsWith("UPDATE")
-        || upper.startsWith("DELETE")
-        || upper.startsWith("DROP")
-        || upper.startsWith("ALTER")
-        || upper.startsWith("CREATE")
-        || upper.startsWith("TRUNCATE")
-        || upper.startsWith("MERGE")
-        || upper.startsWith("GRANT")
-        || upper.startsWith("REVOKE");
   }
 
   /** Strip markdown code fences (``` or ```sql etc.) wrapping the SQL. */

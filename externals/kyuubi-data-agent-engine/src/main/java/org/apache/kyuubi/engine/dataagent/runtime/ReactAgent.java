@@ -36,9 +36,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import org.apache.kyuubi.engine.dataagent.runtime.event.AgentError;
 import org.apache.kyuubi.engine.dataagent.runtime.event.AgentEvent;
@@ -88,15 +88,18 @@ public class ReactAgent implements Closeable {
     this.middlewares = middlewares != null ? middlewares : Collections.emptyList();
     this.maxIterations = maxIterations;
     this.systemPrompt = systemPrompt;
+    // Plain Java thread pool — intentionally not using Kyuubi's Scala ThreadUtils because this
+    // module is pure Java to keep the dependency footprint minimal.
+    AtomicInteger threadCount = new AtomicInteger();
     this.toolExecutor =
         new ThreadPoolExecutor(
             0,
             maxIterations,
             60L,
             TimeUnit.SECONDS,
-            new LinkedBlockingQueue<>(),
+            new java.util.concurrent.SynchronousQueue<>(),
             r -> {
-              Thread t = new Thread(r, "agent-tool-executor");
+              Thread t = new Thread(r, "agent-tool-executor-" + threadCount.getAndIncrement());
               t.setDaemon(true);
               return t;
             });
@@ -120,10 +123,15 @@ public class ReactAgent implements Closeable {
             ? modelNameOverride
             : defaultModelName;
 
-    memory.setSystemPrompt(systemPrompt);
+    // System prompt is immutable for the lifetime of this agent — only set it on first run
+    // to avoid redundant overwrites on multi-turn conversations.
+    if (memory.getSystemPrompt() == null) {
+      memory.setSystemPrompt(systemPrompt);
+    }
     memory.addUserMessage(userInput);
 
     AgentContext ctx = new AgentContext(memory, approvalMode);
+    ctx.setEventEmitter(event -> emit(ctx, event, eventConsumer));
     dispatchAgentStart(ctx);
     emit(ctx, new AgentStart(), eventConsumer);
 
@@ -193,15 +201,16 @@ public class ReactAgent implements Closeable {
             String toolName = fnCall.function().name();
             Map<String, Object> toolArgs = parseToolArgs(fnCall.function().arguments());
 
-            AgentMiddleware.ToolCallDenial denial = dispatchBeforeToolCall(ctx, toolName, toolArgs);
+            AgentMiddleware.ToolCallDenial denial =
+                dispatchBeforeToolCall(ctx, fnCall.id(), toolName, toolArgs);
             if (denial != null) {
               String denied = "Tool call denied: " + denial.reason();
               memory.addToolResult(fnCall.id(), denied);
-              emit(ctx, new ToolResult(toolName, denied, true), eventConsumer);
+              emit(ctx, new ToolResult(fnCall.id(), toolName, denied, true), eventConsumer);
               continue;
             }
 
-            emit(ctx, new ToolCall(toolName, toolArgs), eventConsumer);
+            emit(ctx, new ToolCall(fnCall.id(), toolName, toolArgs), eventConsumer);
             approved.add(new ToolCallEntry(fnCall, toolName, toolArgs));
           }
 
@@ -230,7 +239,10 @@ public class ReactAgent implements Closeable {
             }
 
             memory.addToolResult(entry.fnCall.id(), toolOutput);
-            emit(ctx, new ToolResult(entry.toolName, toolOutput, false), eventConsumer);
+            emit(
+                ctx,
+                new ToolResult(entry.fnCall.id(), entry.toolName, toolOutput, false),
+                eventConsumer);
           }
           emit(ctx, new StepEnd(step), eventConsumer);
           continue;
@@ -376,10 +388,15 @@ public class ReactAgent implements Closeable {
         toolCalls = new ArrayList<>();
         for (Map.Entry<Integer, String> entry : toolCallIds.entrySet()) {
           int idx = entry.getKey();
+          String id = entry.getValue();
+          if (id == null || id.isEmpty()) {
+            id =
+                "local_" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 24);
+          }
           toolCalls.add(
               ChatCompletionMessageToolCall.ofFunction(
                   ChatCompletionMessageFunctionToolCall.builder()
-                      .id(entry.getValue())
+                      .id(id)
                       .function(
                           ChatCompletionMessageFunctionToolCall.Function.builder()
                               .name(toolCallNames.getOrDefault(idx, ""))
@@ -498,10 +515,11 @@ public class ReactAgent implements Closeable {
   }
 
   private AgentMiddleware.ToolCallDenial dispatchBeforeToolCall(
-      AgentContext ctx, String toolName, Map<String, Object> toolArgs) {
+      AgentContext ctx, String toolCallId, String toolName, Map<String, Object> toolArgs) {
     for (AgentMiddleware mw : middlewares) {
       try {
-        AgentMiddleware.ToolCallDenial denial = mw.beforeToolCall(ctx, toolName, toolArgs);
+        AgentMiddleware.ToolCallDenial denial =
+            mw.beforeToolCall(ctx, toolCallId, toolName, toolArgs);
         if (denial != null) return denial;
       } catch (Exception e) {
         LOG.error("Middleware beforeToolCall error, denying tool call as safe default", e);

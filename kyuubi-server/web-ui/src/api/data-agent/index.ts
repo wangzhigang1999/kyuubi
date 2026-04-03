@@ -16,6 +16,8 @@
  */
 
 import request from '@/utils/request'
+import { useAuthStore } from '@/pinia/auth/auth'
+import { fetchEventSource } from '@microsoft/fetch-event-source'
 
 export interface SessionOpenRequest {
   configs?: Record<string, string>
@@ -46,63 +48,73 @@ export function closeSession(sessionHandle: string) {
   })
 }
 
+export function getSession(sessionHandle: string) {
+  return request({
+    url: `api/v1/sessions/${sessionHandle}`,
+    method: 'get'
+  })
+}
+
+export interface ApprovalResponse {
+  status: 'ok' | 'not_found'
+  action: 'approved' | 'denied'
+  requestId: string
+}
+
+/**
+ * Approve or deny a pending tool call.
+ */
+export function approveToolCall(
+  sessionHandle: string,
+  requestId: string,
+  approved: boolean
+): Promise<ApprovalResponse> {
+  return request({
+    url: `api/v1/data-agent/${sessionHandle}/approve`,
+    method: 'post',
+    data: { requestId, approved }
+  })
+}
+
 /**
  * Send a chat message and receive SSE streaming response.
- * Uses native fetch + ReadableStream since axios doesn't support SSE.
+ * Uses @microsoft/fetch-event-source for robust SSE parsing and auth header support.
  */
 export function chatStream(
   sessionHandle: string,
   text: string,
   onEvent: (event: SseEvent) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  approvalMode?: string
 ): Promise<void> {
-  return fetch(`/api/v1/data-agent/${sessionHandle}/chat`, {
+  const body: Record<string, string> = { text }
+  if (approvalMode) body.approvalMode = approvalMode
+
+  const authStore = useAuthStore()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  }
+  if (authStore.isAuthenticated && authStore.authToken) {
+    headers['Authorization'] = authStore.authToken
+  }
+
+  return fetchEventSource(`/api/v1/data-agent/${sessionHandle}/chat`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream'
+    headers,
+    body: JSON.stringify(body),
+    signal,
+    openWhenHidden: true,
+    onmessage(ev) {
+      if (ev.event) {
+        onEvent({ event: ev.event, data: ev.data })
+      }
     },
-    body: JSON.stringify({ text }),
-    signal
-  }).then(async (response) => {
-    if (!response.ok) {
-      const body = await response.text().catch(() => '')
-      let errorMsg = `HTTP ${response.status}: ${response.statusText}`
-      if (body) {
-        try {
-          const json = JSON.parse(body)
-          errorMsg = json.message || body
-        } catch {
-          errorMsg = body
-        }
-      }
-      throw new Error(errorMsg)
-    }
-    const reader = response.body!.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let currentEvent = ''
-    let currentData = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7).trim()
-        } else if (line.startsWith('data: ')) {
-          currentData = line.slice(6)
-        } else if (line === '' && currentEvent) {
-          onEvent({ event: currentEvent, data: currentData })
-          currentEvent = ''
-          currentData = ''
-        }
-      }
+    onclose() {
+      // Stream ended normally
+    },
+    onerror(err) {
+      // Don't retry — propagate the error
+      throw err
     }
   })
 }
