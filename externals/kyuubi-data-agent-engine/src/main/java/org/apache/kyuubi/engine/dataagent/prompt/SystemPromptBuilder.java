@@ -148,7 +148,7 @@ public final class SystemPromptBuilder {
         return reader.lines().collect(Collectors.joining("\n"));
       }
     } catch (IOException e) {
-      return null;
+      throw new RuntimeException("Failed to read prompt resource: " + path, e);
     }
   }
 }

@@ -3865,6 +3865,14 @@ object KyuubiConf {
       .checkValues(Set("STRICT", "NORMAL", "AUTO_APPROVE"))
       .createWithDefault("NORMAL")
 
+  val FRONTEND_DATA_AGENT_OPERATION_TIMEOUT: ConfigEntry[Long] =
+    buildConf("kyuubi.frontend.data.agent.operation.timeout")
+      .doc("Timeout in milliseconds for waiting on data agent engine launch and " +
+        "operation start in the REST frontend.")
+      .version("1.12.0")
+      .longConf
+      .createWithDefault(120000L)
+
   val ENGINE_JDBC_MEMORY: ConfigEntry[String] =
     buildConf("kyuubi.engine.jdbc.memory")
       .doc("The heap memory for the JDBC query engine")

@@ -39,7 +39,18 @@ class DataAgentSessionImpl(
   override def open(): Unit = {
     info(s"Starting to open data agent session.")
     dataAgentProvider.open(handle.identifier.toString, user)
-    super.open()
+    try {
+      super.open()
+    } catch {
+      case e: Throwable =>
+        try {
+          dataAgentProvider.close(handle.identifier.toString)
+        } catch {
+          case ex: Throwable =>
+            error("Failed to cleanup data agent provider on session open failure", ex)
+        }
+        throw e
+    }
     info(s"The data agent session is started.")
   }
 

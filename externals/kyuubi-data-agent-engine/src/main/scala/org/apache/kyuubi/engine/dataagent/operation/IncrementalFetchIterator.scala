@@ -71,6 +71,7 @@ class IncrementalFetchIterator[A] extends FetchIterator[A] {
   }
 
   override def next(): A = lock.synchronized {
+    if (!hasNext) throw new NoSuchElementException("No more elements")
     val idx = (position - trimmedCount).toInt
     position += 1
     buffer(idx)
@@ -80,7 +81,7 @@ class IncrementalFetchIterator[A] extends FetchIterator[A] {
    * Remove already-consumed entries from the front of the buffer to free memory.
    * Called during fetch operations when the consumed prefix exceeds the threshold.
    */
-  private def compactIfNeeded(): Unit = {
+  private def compactIfNeeded(): Unit = lock.synchronized {
     val consumable = (fetchStart - trimmedCount).toInt
     if (consumable >= COMPACT_THRESHOLD) {
       buffer.remove(0, consumable)

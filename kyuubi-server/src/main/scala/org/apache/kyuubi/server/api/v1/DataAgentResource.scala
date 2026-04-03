@@ -34,6 +34,7 @@ import io.swagger.v3.oas.annotations.tags.Tag
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.client.api.v1.dto.{ApprovalRequest, ChatRequest}
+import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.operation.FetchOrientation
 import org.apache.kyuubi.server.api.ApiRequestContext
 import org.apache.kyuubi.session.{KyuubiSessionImpl, SessionHandle}
@@ -71,10 +72,10 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
 
       // Wait for the engine client to become ready using the launch operation's Future,
       // consistent with how KyuubiSessionImpl.waitForEngineLaunched() works.
+      val operationTimeoutMs = fe.getConf.get(KyuubiConf.FRONTEND_DATA_AGENT_OPERATION_TIMEOUT)
       val launchOp = session.launchEngineOp
       try {
-        // TODO: extract timeout to KyuubiConf if longer timeouts are needed in the future
-        launchOp.getBackgroundHandle.get(120, TimeUnit.SECONDS)
+        launchOp.getBackgroundHandle.get(operationTimeoutMs, TimeUnit.MILLISECONDS)
       } catch {
         case _: TimeoutException =>
           sendJsonError(
@@ -187,7 +188,10 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
     }
 
     val opHandle = client.executeStatement(
-      statement, Map.empty[String, String], false, 60000L)
+      statement,
+      Map.empty[String, String],
+      false,
+      60000L)
     try {
       val rowSet = client.fetchResults(opHandle, FetchOrientation.FETCH_NEXT, 1, false)
       val rows = extractStringRows(rowSet)
@@ -209,12 +213,15 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
     // Wait for operation to leave PENDING state before fetching
     waitForRunning(client, opHandle)
 
-    // Phase 1: Poll while operation is running
+    // Phase 1: Poll while operation is running with adaptive backoff
     var operationDone = false
+    var sleepMs = 50L
     while (!operationDone) {
       val rows = fetchAndEmit(client, opHandle, writer, outputStream)
 
-      if (rows == 0) {
+      if (rows > 0) {
+        sleepMs = 50L // reset to fast polling when messages are flowing
+      } else {
         val status = client.getOperationStatus(opHandle)
         val opState = status.getOperationState
         if (isTerminalState(opState)) {
@@ -224,7 +231,8 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
           }
           operationDone = true
         } else {
-          Thread.sleep(50)
+          Thread.sleep(sleepMs)
+          sleepMs = Math.min(sleepMs * 2, 500L) // backoff when idle
         }
       }
     }
@@ -241,8 +249,8 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
   private def waitForRunning(
       client: org.apache.kyuubi.client.KyuubiSyncThriftClient,
       opHandle: TOperationHandle): Unit = {
-    // TODO: extract timeout to KyuubiConf if longer timeouts are needed in the future
-    val deadline = System.currentTimeMillis() + 120000 // 2 minutes
+    val operationTimeoutMs = fe.getConf.get(KyuubiConf.FRONTEND_DATA_AGENT_OPERATION_TIMEOUT)
+    val deadline = System.currentTimeMillis() + operationTimeoutMs
     var sleepMs = 50L
     var ready = false
     while (!ready) {

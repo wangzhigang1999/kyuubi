@@ -50,6 +50,9 @@ class ApproveToolCall(
       } else {
         throw new IllegalArgumentException(s"Invalid approval command: $trimmed")
       }
+      if (requestId.isEmpty) {
+        throw new IllegalArgumentException("requestId cannot be empty")
+      }
 
       val resolved = dataAgentProvider.resolveApproval(requestId, approved)
       val action = if (approved) "approved" else "denied"

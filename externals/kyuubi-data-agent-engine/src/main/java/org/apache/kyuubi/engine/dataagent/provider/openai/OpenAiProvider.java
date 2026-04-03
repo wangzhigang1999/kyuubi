@@ -90,6 +90,7 @@ public class OpenAiProvider implements DataAgentProvider {
 
     // Register tools and build prompt from JDBC URL
     DataSource ds = null;
+    ReactAgent builtAgent = null;
     try {
       ToolRegistry toolRegistry = new ToolRegistry();
       SystemPromptBuilder promptBuilder = SystemPromptBuilder.create();
@@ -105,7 +106,7 @@ public class OpenAiProvider implements DataAgentProvider {
 
       ApprovalMiddleware approval = new ApprovalMiddleware(toolRegistry);
 
-      this.agent =
+      builtAgent =
           ReactAgent.builder()
               .client(client)
               .modelName(modelName)
@@ -115,11 +116,19 @@ public class OpenAiProvider implements DataAgentProvider {
               .maxIterations(maxIterations)
               .systemPrompt(promptBuilder.build())
               .build();
-      this.approvalMiddleware = approval;
 
+      this.agent = builtAgent;
+      this.approvalMiddleware = approval;
       this.dataSource = ds;
     } catch (Exception e) {
-      if (ds != null && ds instanceof HikariDataSource) {
+      if (builtAgent != null) {
+        try {
+          builtAgent.close();
+        } catch (Exception ex) {
+          LOG.warn("Error closing ReactAgent during constructor cleanup", ex);
+        }
+      }
+      if (ds instanceof HikariDataSource) {
         ((HikariDataSource) ds).close();
       }
       throw e;

@@ -30,7 +30,8 @@ import java.util.List;
  * Manages conversation history for a Data Agent session. Ensures tool result messages are never
  * orphaned from their corresponding AI messages.
  *
- * <p>All public methods are synchronized for thread safety.
+ * <p>Each instance is session-scoped and accessed sequentially within a single ReAct loop — no
+ * synchronization is needed. Cross-session concurrency is handled by the provider's session map.
  */
 public class ConversationMemory {
 
@@ -40,30 +41,30 @@ public class ConversationMemory {
 
   public ConversationMemory() {}
 
-  public synchronized String getSystemPrompt() {
+  public String getSystemPrompt() {
     return systemPrompt;
   }
 
-  public synchronized void setSystemPrompt(String prompt) {
+  public void setSystemPrompt(String prompt) {
     this.systemPrompt = prompt;
   }
 
-  public synchronized void addUserMessage(String content) {
+  public void addUserMessage(String content) {
     this.lastUserInput = content;
     messages.add(
         ChatCompletionMessageParam.ofUser(
             ChatCompletionUserMessageParam.builder().content(content).build()));
   }
 
-  public synchronized String getLastUserInput() {
+  public String getLastUserInput() {
     return lastUserInput;
   }
 
-  public synchronized void addAssistantMessage(ChatCompletionAssistantMessageParam message) {
+  public void addAssistantMessage(ChatCompletionAssistantMessageParam message) {
     messages.add(ChatCompletionMessageParam.ofAssistant(message));
   }
 
-  public synchronized void addToolResult(String toolCallId, String content) {
+  public void addToolResult(String toolCallId, String content) {
     messages.add(
         ChatCompletionMessageParam.ofTool(
             ChatCompletionToolMessageParam.builder()
@@ -80,7 +81,7 @@ public class ConversationMemory {
    *
    * @see #getHistory() for history-only access without system prompt
    */
-  public synchronized List<ChatCompletionMessageParam> buildLlmMessages() {
+  public List<ChatCompletionMessageParam> buildLlmMessages() {
     List<ChatCompletionMessageParam> result = new ArrayList<>(messages.size() + 1);
     if (systemPrompt != null) {
       result.add(
@@ -95,7 +96,7 @@ public class ConversationMemory {
    * Returns the conversation history (user, assistant, tool messages) without the system prompt.
    * Useful for middleware that needs to inspect or compact history.
    */
-  public synchronized List<ChatCompletionMessageParam> getHistory() {
+  public List<ChatCompletionMessageParam> getHistory() {
     return Collections.unmodifiableList(new ArrayList<>(messages));
   }
 
@@ -103,16 +104,16 @@ public class ConversationMemory {
    * Replace the conversation history with a compacted version. Useful for context-length management
    * strategies (e.g., summarizing older messages).
    */
-  public synchronized void replaceHistory(List<ChatCompletionMessageParam> compacted) {
+  public void replaceHistory(List<ChatCompletionMessageParam> compacted) {
     messages.clear();
     messages.addAll(compacted);
   }
 
-  public synchronized void clear() {
+  public void clear() {
     messages.clear();
   }
 
-  public synchronized int size() {
+  public int size() {
     return messages.size();
   }
 }
