@@ -16,6 +16,8 @@
  */
 package org.apache.kyuubi.engine.dataagent.operation
 
+import com.fasterxml.jackson.databind.ObjectMapper
+
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.engine.dataagent.provider.DataAgentProvider
 import org.apache.kyuubi.operation.{ArrayFetchIterator, OperationState}
@@ -51,37 +53,22 @@ class ApproveToolCall(
 
       val resolved = dataAgentProvider.resolveApproval(requestId, approved)
       val action = if (approved) "approved" else "denied"
-      val safeId = escapeJson(requestId)
-      val result = if (resolved) {
-        s"""{"status":"ok","action":"$action","requestId":"$safeId"}"""
-      } else {
-        s"""{"status":"not_found","action":"$action","requestId":"$safeId"}"""
-      }
+      val node = ApproveToolCall.JSON.createObjectNode()
+      node.put("status", if (resolved) "ok" else "not_found")
+      node.put("action", action)
+      node.put("requestId", requestId)
+      val result = ApproveToolCall.JSON.writeValueAsString(node)
 
       iter = new ArrayFetchIterator[Array[String]](Array(Array(result)))
       setState(OperationState.FINISHED)
     } catch {
-      onError(cancel = true)
+      onError()
     }
-  }
-
-  private def escapeJson(s: String): String = {
-    if (s == null) return ""
-    val sb = new StringBuilder(s.length)
-    s.foreach {
-      case '\\' => sb.append("\\\\")
-      case '"' => sb.append("\\\"")
-      case '\n' => sb.append("\\n")
-      case '\r' => sb.append("\\r")
-      case '\t' => sb.append("\\t")
-      case c if c < 0x20 => sb.append("\\u%04x".format(c.toInt))
-      case c => sb.append(c)
-    }
-    sb.toString
   }
 }
 
 object ApproveToolCall {
+  private val JSON = new ObjectMapper()
   val APPROVE_PREFIX = "__approve:"
   val DENY_PREFIX = "__deny:"
 

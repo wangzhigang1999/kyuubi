@@ -311,6 +311,7 @@
   const initializing = ref(false)
   let msgIdCounter = 0
   let abortController: AbortController | null = null
+  let isUnmounted = false
 
   const datasourceLabel = computed(() => {
     const url = jdbcUrl.value.trim()
@@ -412,8 +413,11 @@
         errorMessage.value = e.message || 'Stream error'
       }
     } finally {
-      streaming.value = false
-      abortController = null
+      if (!isUnmounted) {
+        streaming.value = false
+        abortController = null
+        debouncedSave()
+      }
     }
   }
 
@@ -421,12 +425,14 @@
     msg: Message,
     event: { event: string; data: string }
   ) {
+    if (isUnmounted) return
     const blocks = msg.blocks!
     let parsed: any
     try {
       parsed = JSON.parse(event.data)
     } catch {
-      parsed = { text: event.data }
+      console.warn('Invalid SSE event data:', event.data)
+      return
     }
 
     switch (event.event) {
@@ -443,6 +449,7 @@
       }
       case 'tool_call': {
         const toolCallId = parsed.id
+        if (!toolCallId || !parsed.name) break
         // Skip if an approval_request block already exists for this tool call
         const hasApproval = blocks.some(
           (b) =>
@@ -473,6 +480,7 @@
         }
         break
       case 'approval_request':
+        if (!parsed.requestId || !parsed.id || !parsed.name) break
         blocks.push({
           type: 'approval_request',
           toolCallId: parsed.id,
@@ -508,6 +516,15 @@
       await approveToolCall(sessionHandle.value, requestId, approved)
     } catch (e: any) {
       errorMessage.value = `Approval failed: ${e.message}`
+      // Revert status so user can retry
+      for (const msg of messages.value) {
+        if (!msg.blocks) continue
+        for (const block of msg.blocks) {
+          if (block.type === 'approval_request' && block.requestId === requestId) {
+            block.approvalStatus = 'pending'
+          }
+        }
+      }
     }
   }
 
@@ -515,10 +532,18 @@
     abortController?.abort()
   }
 
+  let scrollRafId: number | null = null
   function scrollToBottom() {
-    nextTick(() => {
+    if (scrollRafId) return // throttle: at most once per animation frame
+    scrollRafId = requestAnimationFrame(() => {
+      scrollRafId = null
       const el = messagesContainer.value
-      if (el) el.scrollTop = el.scrollHeight
+      if (!el) return
+      // Only auto-scroll if user is near the bottom (within 150px)
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      if (distanceFromBottom < 150) {
+        el.scrollTop = el.scrollHeight
+      }
     })
   }
 
@@ -529,9 +554,8 @@
   }
 
   watch(
-    [sessionHandle, messages, selectedEngine, jdbcUrl, approvalMode],
-    () => debouncedSave(),
-    { deep: true }
+    [sessionHandle, selectedEngine, jdbcUrl, approvalMode],
+    () => debouncedSave()
   )
 
   onMounted(() => {
@@ -542,8 +566,10 @@
   })
 
   onBeforeUnmount(() => {
+    isUnmounted = true
     cancelStream()
     if (saveTimer) clearTimeout(saveTimer)
+    if (scrollRafId) cancelAnimationFrame(scrollRafId)
   })
 </script>
 

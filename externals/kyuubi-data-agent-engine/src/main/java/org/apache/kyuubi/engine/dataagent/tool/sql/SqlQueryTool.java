@@ -102,7 +102,8 @@ public class SqlQueryTool implements AgentTool<SqlQueryArgs> {
       }
     } catch (Exception e) {
       LOG.warn("SQL execution error", e);
-      return "Error: SQL execution failed.";
+      String msg = extractRootCause(e);
+      return "Error: SQL execution failed. " + msg;
     }
   }
 
@@ -152,6 +153,31 @@ public class SqlQueryTool implements AgentTool<SqlQueryArgs> {
         + "\n\n[Output truncated at "
         + MAX_OUTPUT_CHARS
         + " characters]";
+  }
+
+  /**
+   * Walk the exception cause chain to find the root cause message, then truncate to a single-line
+   * summary so the LLM can diagnose the problem without a full stack trace.
+   */
+  private static String extractRootCause(Exception e) {
+    Throwable root = e;
+    while (root.getCause() != null) {
+      root = root.getCause();
+    }
+    String msg = root.getMessage();
+    if (msg == null) {
+      return root.getClass().getSimpleName();
+    }
+    // Take only the first line — Spark errors often include the full query plan after a newline.
+    int newline = msg.indexOf('\n');
+    if (newline > 0) {
+      msg = msg.substring(0, newline);
+    }
+    // Cap length so it doesn't blow up the tool result.
+    if (msg.length() > 500) {
+      msg = msg.substring(0, 500) + "...";
+    }
+    return msg;
   }
 
   /** Strip markdown code fences (``` or ```sql etc.) wrapping the SQL. */

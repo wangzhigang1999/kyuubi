@@ -40,6 +40,7 @@ abstract class DataAgentOperation(session: Session) extends AbstractOperation(se
       throw new IllegalStateException(
         s"Expected state FINISHED or RUNNING, but found $state")
     }
+    require(iter != null, s"Operation $statementId result iterator not initialized")
     setHasResultSet(true)
     order match {
       case FETCH_NEXT =>
@@ -58,7 +59,7 @@ abstract class DataAgentOperation(session: Session) extends AbstractOperation(se
     resultRowSet.setStartRowOffset(iter.getPosition)
     val resp = new TFetchResultsResp(OK_STATUS)
     resp.setResults(resultRowSet)
-    resp.setHasMoreRows(state == OperationState.RUNNING || iter.hasNext)
+    resp.setHasMoreRows(iter.hasNext || state == OperationState.RUNNING)
     resp
   }
 
@@ -70,7 +71,7 @@ abstract class DataAgentOperation(session: Session) extends AbstractOperation(se
     cleanup(OperationState.CLOSED)
   }
 
-  protected def onError(cancel: Boolean = false): PartialFunction[Throwable, Unit] = {
+  protected def onError(): PartialFunction[Throwable, Unit] = {
     case e: Throwable =>
       withLockRequired {
         val errMsg = Utils.stringifyException(e)

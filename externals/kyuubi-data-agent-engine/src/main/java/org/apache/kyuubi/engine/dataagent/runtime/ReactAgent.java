@@ -141,7 +141,7 @@ public class ReactAgent implements Closeable {
         emit(ctx, new StepStart(step), eventConsumer);
 
         // 1. Build messages from memory
-        List<ChatCompletionMessageParam> messages = memory.getMessages();
+        List<ChatCompletionMessageParam> messages = memory.buildLlmMessages();
 
         // 2. Dispatch before_llm_call middleware — may skip or modify messages
         AgentMiddleware.LlmCallAction llmAction = dispatchBeforeLlmCall(ctx, messages);
@@ -229,7 +229,8 @@ public class ReactAgent implements Closeable {
             try {
               toolOutput = futures.get(i).join();
             } catch (Exception e) {
-              toolOutput = "Tool execution error: " + e.getMessage();
+              Throwable cause = e.getCause() != null ? e.getCause() : e;
+              toolOutput = "Tool execution error: " + cause.getMessage();
             }
 
             String modifiedResult =
@@ -440,6 +441,13 @@ public class ReactAgent implements Closeable {
   @Override
   public void close() {
     toolExecutor.shutdownNow();
+    try {
+      if (!toolExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+        LOG.warn("Tool executor did not terminate within 10s timeout");
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
   }
 
   // --- Middleware dispatch methods ---
@@ -583,6 +591,9 @@ public class ReactAgent implements Closeable {
     }
 
     public Builder maxIterations(int maxIterations) {
+      if (maxIterations < 1) {
+        throw new IllegalArgumentException("maxIterations must be >= 1, got " + maxIterations);
+      }
       this.maxIterations = maxIterations;
       return this;
     }

@@ -47,7 +47,7 @@ public class EchoProvider implements DataAgentProvider {
             + question
             + "\n"
             + "This is the Data Agent engine in echo mode. "
-            + "Please configure an LLM provider (e.g., GPT) for actual data analysis.";
+            + "Please configure an LLM provider (e.g., OPENAI_COMPATIBLE) for actual data analysis.";
     for (String token : reply.split("(?<=\\s)")) {
       onEvent.accept(new ContentDelta(token));
     }

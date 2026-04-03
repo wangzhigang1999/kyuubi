@@ -18,7 +18,7 @@
 package org.apache.kyuubi.engine.dataagent
 
 import java.io.File
-import java.nio.file.Paths
+import java.nio.file.{Files, Paths}
 
 import scala.collection.mutable
 
@@ -59,6 +59,7 @@ class DataAgentProcessBuilder(
 
     val memory = conf.get(ENGINE_DATA_AGENT_MEMORY)
     buffer += s"-Xmx$memory"
+    buffer += "-Dfile.encoding=UTF-8"
 
     val javaOptions = conf.get(ENGINE_DATA_AGENT_JAVA_OPTIONS).filter(StringUtils.isNotBlank(_))
     if (javaOptions.isDefined) {
@@ -69,13 +70,14 @@ class DataAgentProcessBuilder(
     mainResource.foreach(classpathEntries.add)
     mainResource.foreach { path =>
       val parent = Paths.get(path).getParent
-      if (Utils.isTesting) {
+      val devDepDir = parent
+        .resolve(s"scala-$SCALA_COMPILE_VERSION")
+        .resolve("jars")
+      if (Files.exists(devDepDir)) {
         // add dev classpath
-        val devDepDir = parent
-          .resolve(s"scala-$SCALA_COMPILE_VERSION")
-          .resolve("jars")
         classpathEntries.add(s"$devDepDir${File.separator}*")
       } else {
+        // add prod classpath
         classpathEntries.add(s"$parent${File.separator}*")
       }
     }

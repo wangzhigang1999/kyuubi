@@ -39,18 +39,16 @@ import org.junit.Test;
 import org.sqlite.SQLiteDataSource;
 
 /**
- * Live integration test with a real LLM (Qwen via DashScope) and real SQLite database. Exercises
- * the full ReAct loop: LLM reasoning -> tool calls -> result verification. Requires
- * DASHSCOPE_API_KEY environment variable.
+ * Live integration test with a real LLM and real SQLite database. Exercises the full ReAct loop:
+ * LLM reasoning -> tool calls -> result verification. Requires DATA_AGENT_LLM_API_KEY and
+ * DATA_AGENT_LLM_API_URL environment variables. Works with any OpenAI-compatible LLM service.
  */
 public class ReactAgentLiveTest {
 
-  private static final String API_KEY = System.getenv().getOrDefault("DASHSCOPE_API_KEY", "");
-  private static final String BASE_URL =
-      System.getenv()
-          .getOrDefault("DASHSCOPE_API_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1");
+  private static final String API_KEY = System.getenv().getOrDefault("DATA_AGENT_LLM_API_KEY", "");
+  private static final String BASE_URL = System.getenv().getOrDefault("DATA_AGENT_LLM_API_URL", "");
   private static final String MODEL_NAME =
-      System.getenv().getOrDefault("DASHSCOPE_MODEL", "qwen-plus");
+      System.getenv().getOrDefault("DATA_AGENT_LLM_MODEL", "gpt-4o");
 
   private static final String SYSTEM_PROMPT =
       SystemPromptBuilder.create().jdbcUrl("jdbc:sqlite:test.db").build();
@@ -60,7 +58,8 @@ public class ReactAgentLiveTest {
 
   @Before
   public void setUp() {
-    assumeTrue("DASHSCOPE_API_KEY not set, skipping live tests", !API_KEY.isEmpty());
+    assumeTrue("DATA_AGENT_LLM_API_KEY not set, skipping live tests", !API_KEY.isEmpty());
+    assumeTrue("DATA_AGENT_LLM_API_URL not set, skipping live tests", !BASE_URL.isEmpty());
     client = OpenAIOkHttpClient.builder().apiKey(API_KEY).baseUrl(BASE_URL).build();
   }
 
@@ -96,7 +95,7 @@ public class ReactAgentLiveTest {
     assertTrue(events.stream().anyMatch(e -> e instanceof StepStart));
     assertTrue(events.stream().anyMatch(e -> e instanceof ContentComplete));
     assertTrue(events.get(events.size() - 1) instanceof AgentFinish);
-    assertEquals(2, memory.getRawMessages().size()); // user + assistant
+    assertEquals(2, memory.getHistory().size()); // user + assistant
   }
 
   @Test
@@ -210,8 +209,8 @@ public class ReactAgentLiveTest {
 
     // Verify memory accumulated across both turns
     assertTrue(
-        "Memory should contain messages from both turns, got " + memory.getRawMessages().size(),
-        memory.getRawMessages().size() > 4);
+        "Memory should contain messages from both turns, got " + memory.getHistory().size(),
+        memory.getHistory().size() > 4);
   }
 
   // --- Helpers ---

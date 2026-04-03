@@ -160,7 +160,7 @@ class ExecuteStatement(
 
       setState(OperationState.FINISHED)
     } catch {
-      onError(true)
+      onError()
     } finally {
       MDC.remove("operationId")
       MDC.remove("sessionId")

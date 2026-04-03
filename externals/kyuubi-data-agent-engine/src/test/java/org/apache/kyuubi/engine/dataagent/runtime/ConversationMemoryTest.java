@@ -35,7 +35,7 @@ public class ConversationMemoryTest {
     memory.setSystemPrompt("You are a test agent.");
     memory.addUserMessage("Hello");
 
-    List<ChatCompletionMessageParam> messages = memory.getMessages();
+    List<ChatCompletionMessageParam> messages = memory.buildLlmMessages();
     assertEquals(2, messages.size());
     assertTrue("First message should be system", messages.get(0).isSystem());
     assertTrue("Second message should be user", messages.get(1).isUser());
@@ -50,7 +50,7 @@ public class ConversationMemoryTest {
     memory.addToolResult("call-1", "result-1");
     memory.addUserMessage("q2");
 
-    List<ChatCompletionMessageParam> messages = memory.getMessages();
+    List<ChatCompletionMessageParam> messages = memory.buildLlmMessages();
     // system + 4 messages
     assertEquals(5, messages.size());
     assertTrue("First message should be system", messages.get(0).isSystem());
@@ -64,14 +64,14 @@ public class ConversationMemoryTest {
 
     memory.clear();
     assertEquals(0, memory.size());
-    assertTrue(memory.getRawMessages().isEmpty());
+    assertTrue(memory.getHistory().isEmpty());
   }
 
   @Test
   public void testGetRawMessagesReturnsDefensiveCopy() {
     ConversationMemory memory = new ConversationMemory();
     memory.addUserMessage("q1");
-    List<ChatCompletionMessageParam> raw = memory.getRawMessages();
+    List<ChatCompletionMessageParam> raw = memory.getHistory();
     assertEquals(1, raw.size());
 
     // Modifying returned list should not affect memory
@@ -101,7 +101,7 @@ public class ConversationMemoryTest {
                 try {
                   for (int i = 0; i < messagesPerThread; i++) {
                     memory.addUserMessage("t" + threadId + "-q" + i);
-                    memory.getMessages(); // concurrent read
+                    memory.buildLlmMessages(); // concurrent read
                     memory.size();
                   }
                 } catch (Exception e) {

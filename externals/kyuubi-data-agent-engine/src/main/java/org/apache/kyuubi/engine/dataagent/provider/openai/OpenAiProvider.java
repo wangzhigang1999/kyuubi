@@ -64,10 +64,17 @@ public class OpenAiProvider implements DataAgentProvider {
     scala.Option<String> apiKeyOpt = conf.get(KyuubiConf.ENGINE_DATA_AGENT_LLM_API_KEY());
     if (apiKeyOpt.isEmpty()) {
       throw new IllegalArgumentException(
-          KyuubiConf.ENGINE_DATA_AGENT_LLM_API_KEY().key() + " is required for OpenAI provider");
+          KyuubiConf.ENGINE_DATA_AGENT_LLM_API_KEY().key()
+              + " is required for OPENAI_COMPATIBLE provider");
+    }
+    scala.Option<String> apiUrlOpt = conf.get(KyuubiConf.ENGINE_DATA_AGENT_LLM_API_URL());
+    if (apiUrlOpt.isEmpty()) {
+      throw new IllegalArgumentException(
+          KyuubiConf.ENGINE_DATA_AGENT_LLM_API_URL().key()
+              + " is required for OPENAI_COMPATIBLE provider");
     }
     String apiKey = apiKeyOpt.get();
-    String baseUrl = conf.get(KyuubiConf.ENGINE_DATA_AGENT_LLM_API_URL());
+    String baseUrl = apiUrlOpt.get();
     String modelName = conf.get(KyuubiConf.ENGINE_DATA_AGENT_LLM_MODEL());
 
     OpenAIClient client =
@@ -112,7 +119,7 @@ public class OpenAiProvider implements DataAgentProvider {
 
       this.dataSource = ds;
     } catch (Exception e) {
-      if (ds instanceof HikariDataSource) {
+      if (ds != null && ds instanceof HikariDataSource) {
         ((HikariDataSource) ds).close();
       }
       throw e;

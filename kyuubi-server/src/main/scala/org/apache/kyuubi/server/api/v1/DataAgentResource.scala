@@ -19,6 +19,7 @@ package org.apache.kyuubi.server.api.v1
 
 import java.io.{IOException, OutputStreamWriter}
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.{ExecutionException, TimeoutException, TimeUnit}
 import javax.servlet.http.HttpServletResponse
 import javax.ws.rs._
 import javax.ws.rs.core.{Context, MediaType}
@@ -26,13 +27,14 @@ import javax.ws.rs.core.{Context, MediaType}
 import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import io.swagger.v3.oas.annotations.media.Content
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.tags.Tag
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.client.api.v1.dto.{ApprovalRequest, ChatRequest}
-import org.apache.kyuubi.operation.{FetchOrientation, OperationState}
+import org.apache.kyuubi.operation.FetchOrientation
 import org.apache.kyuubi.server.api.ApiRequestContext
 import org.apache.kyuubi.session.{KyuubiSessionImpl, SessionHandle}
 import org.apache.kyuubi.shaded.hive.service.rpc.thrift._
@@ -40,6 +42,17 @@ import org.apache.kyuubi.shaded.hive.service.rpc.thrift._
 @Tag(name = "DataAgent")
 @Consumes(Array(MediaType.APPLICATION_JSON))
 private[v1] class DataAgentResource extends ApiRequestContext with Logging {
+
+  private val jsonMapper = new ObjectMapper()
+
+  private def verifySessionOwnership(session: KyuubiSessionImpl): Unit = {
+    val userName = fe.getSessionUser(Map.empty[String, String])
+    if (!fe.isAdministrator(userName) && session.user != userName) {
+      throw new ForbiddenException(
+        s"$userName is not allowed to access session ${session.handle}")
+    }
+  }
+
   @ApiResponse(
     responseCode = "200",
     content = Array(new Content(mediaType = "text/event-stream")),
@@ -54,21 +67,27 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
       val sessionHandle = SessionHandle.fromUUID(sessionHandleStr)
       val session = fe.be.sessionManager.getSession(sessionHandle)
         .asInstanceOf[KyuubiSessionImpl]
-      // Wait for the engine client to become ready (engine connection is async)
-      val deadline = System.currentTimeMillis() + 120000 // 2 minutes timeout
+      verifySessionOwnership(session)
+
+      // Wait for the engine client to become ready using the launch operation's Future,
+      // consistent with how KyuubiSessionImpl.waitForEngineLaunched() works.
       val launchOp = session.launchEngineOp
-      var client = session.client
-      while (client == null && System.currentTimeMillis() < deadline) {
-        val launchStatus = launchOp.getStatus
-        if (launchStatus.state == OperationState.ERROR) {
-          val errMsg = launchStatus.exception
-            .map(_.getMessage).getOrElse("Engine launch failed")
+      try {
+        // TODO: extract timeout to KyuubiConf if longer timeouts are needed in the future
+        launchOp.getBackgroundHandle.get(120, TimeUnit.SECONDS)
+      } catch {
+        case _: TimeoutException =>
+          sendJsonError(
+            response,
+            HttpServletResponse.SC_SERVICE_UNAVAILABLE,
+            "Engine did not start within timeout")
+          return
+        case e: ExecutionException =>
+          val errMsg = Option(e.getCause).map(_.getMessage).getOrElse("Engine launch failed")
           sendJsonError(response, HttpServletResponse.SC_SERVICE_UNAVAILABLE, errMsg)
           return
-        }
-        Thread.sleep(200)
-        client = session.client
       }
+      val client = session.client
 
       if (client == null) {
         sendJsonError(
@@ -137,8 +156,6 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
     }
   }
 
-
-
   @ApiResponse(
     responseCode = "200",
     content = Array(new Content(mediaType = MediaType.APPLICATION_JSON)),
@@ -152,6 +169,7 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
     val sessionHandle = SessionHandle.fromUUID(sessionHandleStr)
     val session = fe.be.sessionManager.getSession(sessionHandle)
       .asInstanceOf[KyuubiSessionImpl]
+    verifySessionOwnership(session)
     val client = session.client
     if (client == null) {
       throw new WebApplicationException("Engine session is not ready", 503)
@@ -168,12 +186,16 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
       s"__deny:$requestId"
     }
 
-    val opHandle = client.executeStatement(statement, Map.empty[String, String], false, 0L)
+    val opHandle = client.executeStatement(
+      statement, Map.empty[String, String], false, 60000L)
     try {
       val rowSet = client.fetchResults(opHandle, FetchOrientation.FETCH_NEXT, 1, false)
       val rows = extractStringRows(rowSet)
-      rows.headOption.getOrElse(
-        s"""{"status":"error","requestId":"${escapeJson(requestId)}","message":"No result returned"}""")
+      rows.headOption.getOrElse {
+        val id = escapeJson(requestId)
+        s"""{"status":"error","requestId":"$id",""" +
+          s""""message":"No result returned"}"""
+      }
     } finally {
       closeOperation(client, opHandle)
     }
@@ -219,16 +241,25 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
   private def waitForRunning(
       client: org.apache.kyuubi.client.KyuubiSyncThriftClient,
       opHandle: TOperationHandle): Unit = {
+    // TODO: extract timeout to KyuubiConf if longer timeouts are needed in the future
     val deadline = System.currentTimeMillis() + 120000 // 2 minutes
+    var sleepMs = 50L
     var ready = false
     while (!ready) {
       if (System.currentTimeMillis() > deadline) {
-        throw new IllegalStateException("Operation did not start within 120 seconds")
+        throw new IllegalStateException("Operation did not start within timeout")
       }
       val state = client.getOperationStatus(opHandle).getOperationState
       state match {
         case TOperationState.INITIALIZED_STATE | TOperationState.PENDING_STATE =>
-          Thread.sleep(50)
+          try {
+            Thread.sleep(sleepMs)
+          } catch {
+            case _: InterruptedException =>
+              Thread.currentThread().interrupt()
+              throw new IllegalStateException("Interrupted while waiting for operation to start")
+          }
+          sleepMs = Math.min(sleepMs * 2, 1000)
         case _ =>
           ready = true
       }
@@ -251,9 +282,12 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
 
   /** Extract the "type" field from a JSON string for use as SSE event name. */
   private def extractJsonType(json: String): String = {
-    // Simple extraction to avoid adding a JSON library dependency
-    val pattern = """"type"\s*:\s*"([^"]+)"""".r
-    pattern.findFirstMatchIn(json).map(_.group(1)).getOrElse("message")
+    try {
+      val node = jsonMapper.readTree(json)
+      Option(node.get("type")).map(_.asText()).getOrElse("message")
+    } catch {
+      case NonFatal(_) => "message"
+    }
   }
 
   private def extractStringRows(rowSet: TRowSet): Seq[String] = {
@@ -299,17 +333,7 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
 
   private def escapeJson(s: String): String = {
     if (s == null) return ""
-    val sb = new StringBuilder(s.length)
-    s.foreach {
-      case '\\' => sb.append("\\\\")
-      case '"' => sb.append("\\\"")
-      case '\n' => sb.append("\\n")
-      case '\r' => sb.append("\\r")
-      case '\t' => sb.append("\\t")
-      case c if c < 0x20 => sb.append("\\u%04x".format(c.toInt))
-      case c => sb.append(c)
-    }
-    sb.toString
+    jsonMapper.writeValueAsString(s).stripPrefix("\"").stripSuffix("\"")
   }
 
   private def sendJsonError(

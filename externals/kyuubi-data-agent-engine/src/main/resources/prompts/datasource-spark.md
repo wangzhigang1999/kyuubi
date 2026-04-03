@@ -7,12 +7,14 @@
 ### Schema exploration
 
 - List databases: `SHOW DATABASES`
-- Switch database: `USE database_name`
-- List tables: `SHOW TABLES` or `SHOW TABLES IN database_name`
-- Describe table: `DESCRIBE TABLE table_name` or `DESCRIBE TABLE EXTENDED table_name`
-- Show columns: `SHOW COLUMNS IN table_name`
-- Show create statement: `SHOW CREATE TABLE table_name`
-- Show partitions: `SHOW PARTITIONS table_name`
+- List tables: `SHOW TABLES IN database_name`
+- Describe table: `DESCRIBE TABLE database_name.table_name` or `DESCRIBE TABLE EXTENDED database_name.table_name`
+- Show columns: `SHOW COLUMNS IN database_name.table_name`
+- Show create statement: `SHOW CREATE TABLE database_name.table_name`
+- Show partitions: `SHOW PARTITIONS database_name.table_name`
+
+**Important:** Always use fully-qualified table names (`database_name.table_name`) in all SQL statements.
+Do NOT use `USE database_name` — each tool call may run on a different connection, so session state like the current database is not preserved between calls.
 
 ### Estimating table size
 

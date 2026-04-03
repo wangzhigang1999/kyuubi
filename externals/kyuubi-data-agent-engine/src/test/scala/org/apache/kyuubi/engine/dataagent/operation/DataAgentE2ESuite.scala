@@ -28,20 +28,18 @@ import org.apache.kyuubi.operation.HiveJDBCTestHelper
  * Full pipeline: JDBC Client -> Kyuubi Thrift -> DataAgentEngine
  * -> LLM -> Tools -> SQLite -> Results
  *
- * Requires DASHSCOPE_API_KEY environment variable.
+ * Requires DATA_AGENT_LLM_API_KEY and DATA_AGENT_LLM_API_URL environment variables.
  */
 class DataAgentE2ESuite extends HiveJDBCTestHelper with WithDataAgentEngine {
 
-  private val apiKey = sys.env.getOrElse("DASHSCOPE_API_KEY", "")
-  private val apiUrl = sys.env.getOrElse(
-    "DASHSCOPE_API_URL",
-    "https://dashscope.aliyuncs.com/compatible-mode/v1")
-  private val modelName = sys.env.getOrElse("DASHSCOPE_MODEL", "qwen-plus")
+  private val apiKey = sys.env.getOrElse("DATA_AGENT_LLM_API_KEY", "")
+  private val apiUrl = sys.env.getOrElse("DATA_AGENT_LLM_API_URL", "")
+  private val modelName = sys.env.getOrElse("DATA_AGENT_LLM_MODEL", "gpt-4o")
   private val dbPath =
     s"${System.getProperty("java.io.tmpdir")}/dataagent_e2e_test_${java.util.UUID.randomUUID()}.db"
 
   override def withKyuubiConf: Map[String, String] = Map(
-    ENGINE_DATA_AGENT_PROVIDER.key -> "GPT",
+    ENGINE_DATA_AGENT_PROVIDER.key -> "OPENAI_COMPATIBLE",
     ENGINE_DATA_AGENT_LLM_API_KEY.key -> apiKey,
     ENGINE_DATA_AGENT_LLM_API_URL.key -> apiUrl,
     ENGINE_DATA_AGENT_LLM_MODEL.key -> modelName,
@@ -51,15 +49,20 @@ class DataAgentE2ESuite extends HiveJDBCTestHelper with WithDataAgentEngine {
 
   override protected def jdbcUrl: String = jdbcConnectionUrl
 
+  private val enabled: Boolean = apiKey.nonEmpty && apiUrl.nonEmpty
+
   override def beforeAll(): Unit = {
-    assume(apiKey.nonEmpty, "DASHSCOPE_API_KEY not set, skipping E2E tests")
-    setupTestDatabase()
-    super.beforeAll()
+    if (enabled) {
+      setupTestDatabase()
+      super.beforeAll()
+    }
   }
 
   override def afterAll(): Unit = {
-    super.afterAll()
-    cleanupTestDatabase()
+    if (enabled) {
+      super.afterAll()
+      cleanupTestDatabase()
+    }
   }
 
   private def setupTestDatabase(): Unit = {
@@ -105,6 +108,7 @@ class DataAgentE2ESuite extends HiveJDBCTestHelper with WithDataAgentEngine {
   }
 
   test("E2E: agent answers data question through full Kyuubi pipeline") {
+    assume(enabled, "DATA_AGENT_LLM_API_KEY/API_URL not set, skipping E2E tests")
     // scalastyle:off println
     withJdbcStatement() { stmt =>
       // Ask a question that requires schema exploration + SQL execution

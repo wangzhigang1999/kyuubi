@@ -116,6 +116,17 @@ private[kyuubi] class EngineRef(
 
   @VisibleForTesting
   private[kyuubi] val subdomain: String = conf.get(ENGINE_SHARE_LEVEL_SUBDOMAIN) match {
+    // DATA_AGENT engines must be isolated by datasource (JDBC URL). This takes precedence over
+    // engine pool and manual subdomain settings because a Spark-focused deployment commonly sets
+    // kyuubi.engine.pool.size globally, which would otherwise override the datasource-based
+    // isolation and route different datasources to the same engine pool.
+    case _ if engineType == DATA_AGENT =>
+      conf.get(ENGINE_DATA_AGENT_JDBC_URL).map { url =>
+        val digest = MessageDigest.getInstance("SHA-256")
+        val hex = digest.digest(url.getBytes(StandardCharsets.UTF_8))
+          .take(8).map("%02x".format(_)).mkString
+        s"ds-$hex"
+      }.getOrElse("default")
     case subdomain if clientPoolSize > 0 && (subdomain.isEmpty || enginePoolIgnoreSubdomain) =>
       val poolSize = math.min(clientPoolSize, poolThreshold)
       if (poolSize < clientPoolSize) {
@@ -137,13 +148,6 @@ private[kyuubi] class EngineRef(
       }
       s"$clientPoolName-${seqNum % poolSize}"
     case Some(_subdomain) => _subdomain
-    case _ if engineType == DATA_AGENT =>
-      conf.get(ENGINE_DATA_AGENT_JDBC_URL).map { url =>
-        val digest = MessageDigest.getInstance("SHA-256")
-        val hex = digest.digest(url.getBytes(StandardCharsets.UTF_8))
-          .take(6).map("%02x".format(_)).mkString
-        s"ds-$hex"
-      }.getOrElse("default")
     case _ => "default" // [KYUUBI #1293]
   }
 

@@ -3780,14 +3780,16 @@ object KyuubiConf {
     buildConf("kyuubi.engine.data.agent.provider")
       .doc("The provider for the Data Agent engine. Candidates: <ul>" +
         " <li>ECHO: simply echoes the input, for testing purpose.</li>" +
-        " <li>GPT: OpenAI-compatible LLM provider.</li>" +
+        " <li>OPENAI_COMPATIBLE: OpenAI-compatible LLM provider, works with any service " +
+        "that implements the OpenAI Chat Completions API " +
+        "(e.g. OpenAI, DashScope, DeepSeek, Moonshot, vLLM, Ollama).</li>" +
         "</ul>")
       .version("1.11.0")
       .stringConf
       .transform {
         case "ECHO" | "echo" =>
           "org.apache.kyuubi.engine.dataagent.provider.echo.EchoProvider"
-        case "GPT" | "gpt" | "OpenAI" | "openai" =>
+        case "OPENAI_COMPATIBLE" | "openai_compatible" | "openai-compatible" =>
           "org.apache.kyuubi.engine.dataagent.provider.openai.OpenAiProvider"
         case other => other
       }
@@ -3802,17 +3804,24 @@ object KyuubiConf {
 
   val ENGINE_DATA_AGENT_LLM_MODEL: ConfigEntry[String] =
     buildConf("kyuubi.engine.data.agent.llm.model")
-      .doc("The model ID used by the Data Agent engine LLM provider.")
+      .doc("The model ID used by the Data Agent engine LLM provider. " +
+        "The value depends on your LLM service, e.g. gpt-4o for OpenAI, " +
+        "qwen-plus for DashScope, deepseek-chat for DeepSeek.")
       .version("1.11.0")
       .stringConf
-      .createWithDefault("gpt-4")
+      .createWithDefault("gpt-4o")
 
-  val ENGINE_DATA_AGENT_LLM_API_URL: ConfigEntry[String] =
+  val ENGINE_DATA_AGENT_LLM_API_URL: OptionalConfigEntry[String] =
     buildConf("kyuubi.engine.data.agent.llm.api.url")
-      .doc("The API base URL for the LLM service used by the Data Agent engine.")
+      .doc("The API base URL for the LLM service used by the Data Agent engine. " +
+        "Required when using the OPENAI_COMPATIBLE provider. " +
+        "Supports any OpenAI-compatible endpoint, e.g. " +
+        "https://api.openai.com/v1, " +
+        "https://dashscope.aliyuncs.com/compatible-mode/v1, " +
+        "https://api.deepseek.com/v1.")
       .version("1.11.0")
       .stringConf
-      .createWithDefault("https://api.openai.com/v1")
+      .createOptional
 
   val ENGINE_DATA_AGENT_MAX_ITERATIONS: ConfigEntry[Int] =
     buildConf("kyuubi.engine.data.agent.max.iterations")

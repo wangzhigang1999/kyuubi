@@ -73,39 +73,37 @@ public class ConversationMemory {
   }
 
   /**
-   * Returns the full message list for LLM invocation: system prompt prepended + all history
-   * messages. This is the list sent to the LLM API.
+   * Build the full message list for LLM API invocation: [system prompt] + conversation history.
    *
    * <p>No windowing is applied — callers are responsible for managing context length (e.g. via a
    * token-based truncation strategy).
    *
-   * @see #getRawMessages() for history-only access without system prompt
+   * @see #getHistory() for history-only access without system prompt
    */
-  public synchronized List<ChatCompletionMessageParam> getMessages() {
-    List<ChatCompletionMessageParam> result = new ArrayList<>();
+  public synchronized List<ChatCompletionMessageParam> buildLlmMessages() {
+    List<ChatCompletionMessageParam> result = new ArrayList<>(messages.size() + 1);
     if (systemPrompt != null) {
       result.add(
           ChatCompletionMessageParam.ofSystem(
               ChatCompletionSystemMessageParam.builder().content(systemPrompt).build()));
     }
     result.addAll(messages);
-    return result;
+    return Collections.unmodifiableList(result);
   }
 
   /**
-   * Returns only the conversation history (user, assistant, tool messages) without the system
-   * prompt. Useful for middleware that needs to inspect or compact history without touching the
-   * system prompt.
+   * Returns the conversation history (user, assistant, tool messages) without the system prompt.
+   * Useful for middleware that needs to inspect or compact history.
    */
-  public synchronized List<ChatCompletionMessageParam> getRawMessages() {
+  public synchronized List<ChatCompletionMessageParam> getHistory() {
     return Collections.unmodifiableList(new ArrayList<>(messages));
   }
 
   /**
-   * Replace the entire message history with a compacted list. Useful for context-length management
+   * Replace the conversation history with a compacted version. Useful for context-length management
    * strategies (e.g., summarizing older messages).
    */
-  public synchronized void replaceMessages(List<ChatCompletionMessageParam> compacted) {
+  public synchronized void replaceHistory(List<ChatCompletionMessageParam> compacted) {
     messages.clear();
     messages.addAll(compacted);
   }
