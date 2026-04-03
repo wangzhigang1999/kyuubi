@@ -30,7 +30,7 @@ final class SparkShutdownWatchdogConf {
   static final boolean SHUTDOWN_WATCHDOG_ENABLED_DEFAULT = true;
 
   static final String SHUTDOWN_WATCHDOG_TIMEOUT_KEY = "spark.kyuubi.shutdown.watchdog.timeout";
-  private static final String SHUTDOWN_WATCHDOG_TIMEOUT_DEFAULT = "0ms";
+  private static final String SHUTDOWN_WATCHDOG_TIMEOUT_DEFAULT = "1m";
 
   private SparkShutdownWatchdogConf() {}
 

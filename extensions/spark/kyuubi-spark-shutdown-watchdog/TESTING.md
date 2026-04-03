@@ -87,12 +87,10 @@ import java.util.Arrays;
 
 public class TestNormalShutdown {
     public static void main(String[] args) {
+        // Watchdog configs are passed via --conf on spark-submit command line
         SparkConf conf = new SparkConf()
             .setAppName("TestNormalShutdown")
-            .setMaster("local[2]")
-            .set("spark.kyuubi.shutdown.watchdog.enabled", "true")
-            .set("spark.kyuubi.shutdown.watchdog.timeout", "5s")
-            .set("spark.plugins", "org.apache.spark.kyuubi.shutdown.watchdog.SparkShutdownWatchdogPlugin");
+            .setMaster("local[2]");
         
         JavaSparkContext jsc = new JavaSparkContext(conf);
         
@@ -156,12 +154,10 @@ public class TestHangingShutdown {
     private static final CountDownLatch latch = new CountDownLatch(1);
     
     public static void main(String[] args) {
+        // Watchdog configs are passed via --conf on spark-submit command line
         SparkConf conf = new SparkConf()
             .setAppName("TestHangingShutdown")
-            .setMaster("local[2]")
-            .set("spark.kyuubi.shutdown.watchdog.enabled", "true")
-            .set("spark.kyuubi.shutdown.watchdog.timeout", "5s")
-            .set("spark.plugins", "org.apache.spark.kyuubi.shutdown.watchdog.SparkShutdownWatchdogPlugin");
+            .setMaster("local[2]");
         
         JavaSparkContext jsc = new JavaSparkContext(conf);
         

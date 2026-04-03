@@ -124,9 +124,9 @@ public final class ThreadDumpUtils {
       writeLine(writer);
 
       checkDeadlocks(writer);
-      showThreadStatistics(allExtendedThreads, writer);
 
       ThreadBuckets buckets = splitDaemonThreads(allExtendedThreads);
+      showThreadStatistics(allExtendedThreads, buckets, writer);
 
       writeLine(writer);
       writeLine(writer, "==================== Non-Daemon Threads ====================");
@@ -203,13 +203,12 @@ public final class ThreadDumpUtils {
     }
   }
 
-  private static void showThreadStatistics(ExtendedThreadInfo[] allThreads, PrintWriter writer) {
+  private static void showThreadStatistics(
+      ExtendedThreadInfo[] allThreads, ThreadBuckets buckets, PrintWriter writer) {
     Map<Thread.State, List<ExtendedThreadInfo>> byState = new EnumMap<>(Thread.State.class);
     for (ExtendedThreadInfo info : allThreads) {
       byState.computeIfAbsent(info.getState(), k -> new ArrayList<>()).add(info);
     }
-
-    ThreadBuckets buckets = splitDaemonThreads(allThreads);
 
     writeLine(writer, "Thread Statistics:");
     writeLine(

@@ -38,12 +38,16 @@ public final class ShutdownWatchdog {
   static final int EXIT_CODE_WATCHDOG_FAILURE = SparkExitCode.UNCAUGHT_EXCEPTION_TWICE();
 
   private static final AtomicReference<Thread> WATCHDOG_THREAD_REF = new AtomicReference<>();
-  private static volatile IntConsumer exitFn = System::exit;
+  // Use halt() instead of exit() because the watchdog runs during the shutdown hook chain.
+  // System.exit() inside a shutdown hook is undefined behavior and may deadlock on some JVMs,
+  // whereas halt() bypasses hooks and terminates the JVM immediately — the intended semantics
+  // for a forced termination.
+  private static volatile IntConsumer exitFn = code -> Runtime.getRuntime().halt(code);
 
   private ShutdownWatchdog() {}
 
   static void setExitFn(IntConsumer fn) {
-    exitFn = fn != null ? fn : System::exit;
+    exitFn = fn != null ? fn : code -> Runtime.getRuntime().halt(code);
   }
 
   static void startIfNeeded(SparkConf sparkConf, Logger logger) {
@@ -59,7 +63,10 @@ public final class ShutdownWatchdog {
 
     final long timeoutMillis = SparkShutdownWatchdogConf.getTimeoutMillis(sparkConf);
     if (timeoutMillis <= 0L) {
-      logger.info("Shutdown Watchdog is disabled because timeout <= 0.");
+      logger.info(
+          "Shutdown Watchdog will not start: timeout is not configured or non-positive. "
+              + "Set {}=<duration> (e.g. \"5m\") to activate.",
+          SparkShutdownWatchdogConf.SHUTDOWN_WATCHDOG_TIMEOUT_KEY);
       return;
     }
 
@@ -71,8 +78,12 @@ public final class ShutdownWatchdog {
 
     final Thread watchdogThread =
         new Thread(() -> runWatchdogLoop(timeoutMillis, logger), "shutdown-watchdog");
+    // Daemon so that if the graceful shutdown succeeds and all non-daemon threads exit,
+    // the JVM can terminate naturally without waiting for (or interrupting) this thread.
     watchdogThread.setDaemon(true);
 
+    // CAS guards against concurrent callers: if another thread raced past the isAlive() check
+    // above and already installed a new watchdog, this CAS will fail and we bail out.
     if (!WATCHDOG_THREAD_REF.compareAndSet(existing, watchdogThread)) {
       logger.warn("Shutdown Watchdog could not be started because another instance won the race.");
       return;
@@ -147,6 +158,6 @@ public final class ShutdownWatchdog {
         Thread.currentThread().interrupt();
       }
     }
-    exitFn = System::exit;
+    exitFn = code -> Runtime.getRuntime().halt(code);
   }
 }
