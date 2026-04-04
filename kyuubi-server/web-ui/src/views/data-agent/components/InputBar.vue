@@ -43,7 +43,7 @@
       </div>
     </div>
     <div class="input-hint">
-      <kbd>Enter</kbd> send &middot; <kbd>Shift+Enter</kbd> new line
+      <kbd>Enter</kbd> {{ $t('data_agent.input_hint_send') }} &middot; <kbd>Shift+Enter</kbd> {{ $t('data_agent.input_hint_newline') }}
     </div>
   </div>
 </template>
@@ -81,7 +81,7 @@
 
 <style lang="scss" scoped>
   .input-bar {
-    padding: 0 20% 16px;
+    padding: 0 10% 16px;
     background: #f7f8fa;
     flex-shrink: 0;
   }

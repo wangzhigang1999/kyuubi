@@ -37,6 +37,7 @@ public class SqlQueryTool implements AgentTool<SqlQueryArgs> {
 
   private static final int MAX_ROWS_HARD_LIMIT = 1000;
   private static final int MAX_OUTPUT_CHARS = 65536;
+  private static final int MAX_CELL_CHARS = 500;
 
   private final DataSource dataSource;
   private final int queryTimeoutSeconds;
@@ -135,7 +136,14 @@ public class SqlQueryTool implements AgentTool<SqlQueryArgs> {
       for (int i = 1; i <= colCount; i++) {
         if (i > 1) sb.append(" | ");
         String val = rs.getString(i);
-        sb.append(val != null ? val.replace("|", "\\|") : "NULL");
+        if (val != null) {
+          if (val.length() > MAX_CELL_CHARS) {
+            val = val.substring(0, MAX_CELL_CHARS) + "...";
+          }
+          sb.append(val.replace("|", "\\|"));
+        } else {
+          sb.append("NULL");
+        }
       }
       sb.append(" |\n");
       rowCount++;

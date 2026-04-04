@@ -35,19 +35,6 @@ public interface JdbcDialect {
   String quoteIdentifier(String identifier);
 
   /**
-   * Generate a SQL statement that returns up to {@code limit} random distinct non-null values from
-   * a column. Used for profiling column content (enum values, date formats, ID patterns, etc.).
-   *
-   * @param table fully qualified table name (already quoted if needed)
-   * @param column column name (already quoted if needed)
-   * @param percent sampling percentage (0, 100], controls how much data to scan before
-   *     deduplication. Dialects without native sampling support may ignore this parameter.
-   * @param limit maximum number of distinct values to return
-   * @return a dialect-specific SQL string
-   */
-  String randomDistinctSampleColumn(String table, String column, int percent, int limit);
-
-  /**
    * Infer the dialect from a JDBC URL.
    *
    * @param jdbcUrl the JDBC connection URL
@@ -61,9 +48,16 @@ public interface JdbcDialect {
     if (lower.startsWith("jdbc:hive2:") || lower.startsWith("jdbc:spark:")) {
       return SparkDialect.INSTANCE;
     }
+    if (lower.startsWith("jdbc:trino:")) {
+      return TrinoDialect.INSTANCE;
+    }
+    if (lower.startsWith("jdbc:mysql:")) {
+      return MysqlDialect.INSTANCE;
+    }
     if (lower.startsWith("jdbc:sqlite:")) {
       return SqliteDialect.INSTANCE;
     }
-    return null;
+    // MySQL as fallback for unrecognized JDBC URLs
+    return MysqlDialect.INSTANCE;
   }
 }

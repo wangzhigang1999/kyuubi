@@ -44,17 +44,6 @@ public class DialectTest {
     assertEquals("`my``table`", dialect.quoteIdentifier("my`table"));
   }
 
-  @Test
-  public void testSparkRandomDistinctSample() {
-    JdbcDialect dialect = JdbcDialect.fromUrl("jdbc:hive2://localhost:10009");
-    String sql = dialect.randomDistinctSampleColumn("`db`.`t`", "`col`", 10, 5);
-    assertTrue(sql.contains("TABLESAMPLE(10 PERCENT)"));
-    assertTrue(sql.contains("DISTINCT `col`"));
-    assertTrue(sql.contains("FROM `db`.`t`"));
-    assertTrue(sql.contains("IS NOT NULL"));
-    assertTrue(sql.contains("LIMIT 5"));
-  }
-
   // --- SqliteDialect ---
 
   @Test
@@ -73,18 +62,6 @@ public class DialectTest {
   public void testSqliteQuoteIdentifierWithQuote() {
     JdbcDialect dialect = JdbcDialect.fromUrl("jdbc:sqlite:/tmp/test.db");
     assertEquals("\"my\"\"table\"", dialect.quoteIdentifier("my\"table"));
-  }
-
-  @Test
-  public void testSqliteRandomDistinctSample() {
-    JdbcDialect dialect = JdbcDialect.fromUrl("jdbc:sqlite:/tmp/test.db");
-    String sql = dialect.randomDistinctSampleColumn("\"t\"", "\"col\"", 10, 5);
-    assertTrue(sql.contains("ORDER BY RANDOM()"));
-    assertTrue(sql.contains("DISTINCT \"col\""));
-    assertTrue(sql.contains("FROM \"t\""));
-    assertTrue(sql.contains("IS NOT NULL"));
-    assertTrue(sql.contains("LIMIT 5"));
-    assertFalse("SQLite should not use TABLESAMPLE", sql.contains("TABLESAMPLE"));
   }
 
   // --- JdbcDialect.fromUrl edge cases ---

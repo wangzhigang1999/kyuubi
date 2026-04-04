@@ -20,8 +20,18 @@
   <div class="chat-message" :class="{ 'is-user': role === 'user' }">
     <!-- User message -->
     <template v-if="role === 'user'">
-      <div class="user-bubble">
-        {{ text }}
+      <div class="bubble-wrapper">
+        <div class="user-bubble">
+          {{ text }}
+        </div>
+        <div class="bubble-actions">
+          <button
+            class="bubble-action-btn"
+            :title="$t('data_agent.copy')"
+            @click="copyText(text || '')">
+            <el-icon :size="12"><DocumentCopy /></el-icon>
+          </button>
+        </div>
       </div>
       <div class="avatar avatar-user">
         <el-icon :size="16"><User /></el-icon>
@@ -33,6 +43,7 @@
       <div class="avatar avatar-assistant">
         <el-icon :size="16" color="#fff"><ChatDotRound /></el-icon>
       </div>
+      <div class="bubble-wrapper">
       <div class="assistant-bubble">
         <div v-for="(block, idx) in blocks" :key="idx" class="assistant-block">
           <!-- Text block -->
@@ -51,7 +62,7 @@
                 <el-icon :size="16" color="#e6a23c"><Warning /></el-icon>
               </div>
               <div class="approval-info">
-                <span class="approval-title">Approval Required</span>
+                <span class="approval-title">{{ $t('data_agent.approval_required') }}</span>
                 <span class="approval-tool">
                   <span class="tool-name-inline">{{ block.name }}</span>
                   <el-tag size="small" type="danger" effect="plain">{{ block.riskLevel }}</el-tag>
@@ -59,7 +70,7 @@
               </div>
             </div>
             <div v-if="block.args" class="approval-args">
-              <div class="tool-section-label">Arguments</div>
+              <div class="tool-section-label">{{ $t('data_agent.arguments') }}</div>
               <pre class="tool-pre">{{ formatArgs(block.args) }}</pre>
             </div>
             <div class="approval-actions">
@@ -67,16 +78,19 @@
                 type="primary"
                 size="small"
                 :icon="Check"
+                :loading="props.approvingRequestId === block.requestId"
+                :disabled="!!props.approvingRequestId"
                 @click="emit('approve', block.requestId!)">
-                Approve
+                {{ $t('data_agent.approve') }}
               </el-button>
               <el-button
                 type="danger"
                 size="small"
                 plain
                 :icon="Close"
+                :disabled="!!props.approvingRequestId"
                 @click="emit('deny', block.requestId!)">
-                Deny
+                {{ $t('data_agent.deny') }}
               </el-button>
             </div>
           </div>
@@ -99,7 +113,7 @@
                   :type="block.approvalStatus === 'approved' ? 'success' : 'danger'"
                   effect="plain"
                   size="small">
-                  {{ block.approvalStatus === 'approved' ? 'Approved' : 'Denied' }}
+                  {{ block.approvalStatus === 'approved' ? $t('data_agent.approved') : $t('data_agent.denied') }}
                 </el-tag>
               </div>
               <div class="tool-header-right">
@@ -112,10 +126,10 @@
                   }">
                   {{
                     block.approvalStatus === 'denied'
-                      ? 'Denied'
+                      ? $t('data_agent.denied')
                       : block.result != null
-                        ? block.isError ? 'Error' : 'Done'
-                        : 'Running...'
+                        ? block.isError ? $t('data_agent.error') : $t('data_agent.done')
+                        : $t('data_agent.running')
                   }}
                 </span>
                 <el-icon
@@ -128,19 +142,19 @@
             <Transition name="tool-expand">
               <div v-if="block.expanded" class="tool-body">
                 <div v-if="block.args" class="tool-section">
-                  <div class="tool-section-label">Arguments</div>
+                  <div class="tool-section-label">{{ $t('data_agent.arguments') }}</div>
                   <div class="tool-pre-wrapper">
                     <pre class="tool-pre">{{ formatArgs(block.args) }}</pre>
                     <button
                       class="copy-btn"
-                      title="Copy"
+                      :title="$t('data_agent.copy')"
                       @click.stop="copyText(block.args || '')">
                       <el-icon :size="12"><DocumentCopy /></el-icon>
                     </button>
                   </div>
                 </div>
                 <div v-if="block.result != null" class="tool-section">
-                  <div class="tool-section-label">Result</div>
+                  <div class="tool-section-label">{{ $t('data_agent.result') }}</div>
                   <div v-if="block.isError" class="tool-pre-wrapper">
                     <pre class="tool-pre is-error">{{ block.result }}</pre>
                   </div>
@@ -150,7 +164,7 @@
                       v-html="renderMarkdown(block.result || '')"></div>
                     <button
                       class="copy-btn"
-                      title="Copy"
+                      :title="$t('data_agent.copy')"
                       @click.stop="copyText(block.result || '')">
                       <el-icon :size="12"><DocumentCopy /></el-icon>
                     </button>
@@ -184,9 +198,9 @@
                   {{
                     block.result != null
                       ? block.isError
-                        ? 'Error'
-                        : 'Done'
-                      : 'Running...'
+                        ? $t('data_agent.error')
+                        : $t('data_agent.done')
+                      : $t('data_agent.running')
                   }}
                 </span>
                 <el-icon
@@ -199,24 +213,24 @@
             <Transition name="tool-expand">
               <div v-if="block.expanded" class="tool-body">
                 <div v-if="block.args" class="tool-section">
-                  <div class="tool-section-label">Arguments</div>
+                  <div class="tool-section-label">{{ $t('data_agent.arguments') }}</div>
                   <div class="tool-pre-wrapper">
                     <pre class="tool-pre">{{ formatArgs(block.args) }}</pre>
                     <button
                       class="copy-btn"
-                      title="Copy"
+                      :title="$t('data_agent.copy')"
                       @click.stop="copyText(block.args || '')">
                       <el-icon :size="12"><DocumentCopy /></el-icon>
                     </button>
                   </div>
                 </div>
                 <div v-if="block.result != null" class="tool-section">
-                  <div class="tool-section-label">Result</div>
+                  <div class="tool-section-label">{{ $t('data_agent.result') }}</div>
                   <div v-if="block.isError" class="tool-pre-wrapper">
                     <pre class="tool-pre is-error">{{ block.result }}</pre>
                     <button
                       class="copy-btn"
-                      title="Copy"
+                      :title="$t('data_agent.copy')"
                       @click.stop="copyText(block.result || '')">
                       <el-icon :size="12"><DocumentCopy /></el-icon>
                     </button>
@@ -227,7 +241,7 @@
                       v-html="renderMarkdown(block.result || '')"></div>
                     <button
                       class="copy-btn"
-                      title="Copy"
+                      :title="$t('data_agent.copy')"
                       @click.stop="copyText(block.result || '')">
                       <el-icon :size="12"><DocumentCopy /></el-icon>
                     </button>
@@ -241,8 +255,17 @@
         <!-- Streaming indicator -->
         <div v-if="streaming" class="streaming-indicator">
           <span class="streaming-dot"></span>
-          <span class="streaming-label">Generating...</span>
+          <span class="streaming-label">{{ $t('data_agent.generating') }}</span>
         </div>
+      </div>
+      <div class="bubble-actions">
+        <button
+          class="bubble-action-btn"
+          :title="$t('data_agent.copy')"
+          @click="copyText(allAssistantText)">
+          <el-icon :size="12"><DocumentCopy /></el-icon>
+        </button>
+      </div>
       </div>
     </template>
   </div>
@@ -258,9 +281,11 @@
     Close,
     Warning
   } from '@element-plus/icons-vue'
+  import { computed } from 'vue'
   import { marked } from 'marked'
   import DOMPurify from 'dompurify'
   import { ElMessage } from 'element-plus'
+  import { useI18n } from 'vue-i18n'
 
   export interface ChatBlock {
     type: 'text' | 'tool_call' | 'approval_request'
@@ -277,17 +302,28 @@
     approvalStatus?: 'pending' | 'approved' | 'denied'
   }
 
-  defineProps<{
+  const props = defineProps<{
     role: 'user' | 'assistant'
     text?: string
     blocks?: ChatBlock[]
     streaming?: boolean
+    approvingRequestId?: string
   }>()
 
   const emit = defineEmits<{
     (e: 'approve', requestId: string): void
     (e: 'deny', requestId: string): void
   }>()
+
+  const { t } = useI18n()
+
+  const allAssistantText = computed(() => {
+    if (!props.blocks) return ''
+    return props.blocks
+      .filter((b) => b.type === 'text' && b.text)
+      .map((b) => b.text)
+      .join('\n\n')
+  })
 
   function renderMarkdown(content: string): string {
     if (!content) return ''
@@ -309,9 +345,9 @@
   async function copyText(text: string) {
     try {
       await navigator.clipboard.writeText(text)
-      ElMessage.success({ message: 'Copied', duration: 1500 })
+      ElMessage.success({ message: t('data_agent.copied'), duration: 1500 })
     } catch {
-      ElMessage.warning('Copy failed')
+      ElMessage.warning(t('data_agent.copy_failed'))
     }
   }
 </script>
@@ -348,7 +384,6 @@
   }
 
   .user-bubble {
-    max-width: 70%;
     padding: 10px 16px;
     border-radius: 16px 16px 4px 16px;
     background: #409eff;
@@ -360,8 +395,50 @@
     box-shadow: 0 2px 8px rgba(64, 158, 255, 0.2);
   }
 
-  .assistant-bubble {
+  .bubble-wrapper {
+    display: flex;
+    flex-direction: column;
     max-width: 85%;
+    min-width: min(480px, 100%);
+  }
+
+  .is-user .bubble-wrapper {
+    align-items: flex-end;
+    max-width: 70%;
+  }
+
+  .bubble-actions {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .bubble-wrapper:hover .bubble-actions {
+    opacity: 1;
+  }
+
+  .bubble-action-btn {
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: #c0c4cc;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+
+    &:hover {
+      background: #f0f1f3;
+      color: #606266;
+    }
+  }
+
+  .assistant-bubble {
     min-width: min(480px, 100%);
     background: #fff;
     border: 1px solid #e5e6eb;

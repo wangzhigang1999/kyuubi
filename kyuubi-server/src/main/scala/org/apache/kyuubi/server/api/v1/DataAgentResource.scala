@@ -20,6 +20,7 @@ package org.apache.kyuubi.server.api.v1
 import java.io.{IOException, OutputStreamWriter}
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.{ExecutionException, TimeoutException, TimeUnit}
+import java.util.regex.Pattern
 import javax.servlet.http.HttpServletResponse
 import javax.ws.rs._
 import javax.ws.rs.core.{Context, MediaType}
@@ -43,6 +44,8 @@ import org.apache.kyuubi.shaded.hive.service.rpc.thrift._
 @Tag(name = "DataAgent")
 @Consumes(Array(MediaType.APPLICATION_JSON))
 private[v1] class DataAgentResource extends ApiRequestContext with Logging {
+
+  import DataAgentResource._
 
   private val jsonMapper = new ObjectMapper()
 
@@ -78,29 +81,45 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
         launchOp.getBackgroundHandle.get(operationTimeoutMs, TimeUnit.MILLISECONDS)
       } catch {
         case _: TimeoutException =>
-          sendJsonError(
-            response,
-            HttpServletResponse.SC_SERVICE_UNAVAILABLE,
-            "Engine did not start within timeout")
+          sendSseError(response, "Engine did not start within timeout")
           return
         case e: ExecutionException =>
           val errMsg = Option(e.getCause).map(_.getMessage).getOrElse("Engine launch failed")
-          sendJsonError(response, HttpServletResponse.SC_SERVICE_UNAVAILABLE, errMsg)
+          sendSseError(response, errMsg)
           return
       }
       val client = session.client
 
       if (client == null) {
-        sendJsonError(
-          response,
-          HttpServletResponse.SC_SERVICE_UNAVAILABLE,
-          "Engine session is not ready after waiting")
+        sendSseError(response, "Engine session is not ready after waiting")
         return
       }
 
       val text = request.getText
       if (text == null || text.trim.isEmpty) {
-        sendJsonError(response, HttpServletResponse.SC_BAD_REQUEST, "text is required")
+        sendSseError(response, "text is required")
+        return
+      }
+      if (text.length > MAX_TEXT_LENGTH) {
+        sendSseError(
+          response,
+          s"text exceeds maximum length of $MAX_TEXT_LENGTH characters")
+        return
+      }
+
+      // Validate optional model name - reject obviously invalid values
+      val model = Option(request.getModel).map(_.trim).filter(_.nonEmpty)
+      if (model.exists(m => m.length > MAX_MODEL_LENGTH || !MODEL_PATTERN.matcher(m).matches())) {
+        sendSseError(response, "invalid model name")
+        return
+      }
+
+      // Validate optional approval mode
+      val approvalMode = Option(request.getApprovalMode).map(_.trim).filter(_.nonEmpty)
+      if (approvalMode.exists(m => !VALID_APPROVAL_MODES.contains(m.toUpperCase))) {
+        sendSseError(
+          response,
+          s"invalid approvalMode, must be one of: ${VALID_APPROVAL_MODES.mkString(", ")}")
         return
       }
 
@@ -119,11 +138,10 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
 
       // Execute statement asynchronously on the engine
       info(s"Data Agent chat: session=$sessionHandleStr, text=${text.take(100)}")
-      var confOverlay = Option(request.getModel)
-        .filter(_.nonEmpty)
+      var confOverlay = model
         .map(m => Map("kyuubi.engine.data.agent.llm.model" -> m))
         .getOrElse(Map.empty[String, String])
-      Option(request.getApprovalMode).filter(_.nonEmpty).foreach { mode =>
+      approvalMode.foreach { mode =>
         confOverlay = confOverlay + ("kyuubi.engine.data.agent.approval.mode" -> mode)
       }
       val opHandle = client.executeStatement(text, confOverlay, true, 0L)
@@ -141,7 +159,7 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
               writer,
               outputStream,
               "error",
-              s"""{"message":"${escapeJson(e.getMessage)}"}""")
+              buildJsonMessage(e.getMessage))
           } catch {
             case _: IOException => // client already gone
           }
@@ -152,7 +170,7 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
       case NonFatal(e) =>
         error(s"Error processing chat for session $sessionHandleStr", e)
         if (!response.isCommitted) {
-          sendJsonError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, e.getMessage)
+          sendSseError(response, e.getMessage)
         }
     }
   }
@@ -196,9 +214,11 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
       val rowSet = client.fetchResults(opHandle, FetchOrientation.FETCH_NEXT, 1, false)
       val rows = extractStringRows(rowSet)
       rows.headOption.getOrElse {
-        val id = escapeJson(requestId)
-        s"""{"status":"error","requestId":"$id",""" +
-          s""""message":"No result returned"}"""
+        val node = jsonMapper.createObjectNode()
+        node.put("status", "error")
+        node.put("requestId", requestId)
+        node.put("message", "No result returned")
+        jsonMapper.writeValueAsString(node)
       }
     } finally {
       closeOperation(client, opHandle)
@@ -227,7 +247,7 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
         if (isTerminalState(opState)) {
           if (opState == TOperationState.ERROR_STATE) {
             val errMsg = Option(status.getErrorMessage).getOrElse("Unknown error")
-            writeSseEvent(writer, outputStream, "error", s"""{"message":"${escapeJson(errMsg)}"}""")
+            writeSseEvent(writer, outputStream, "error", buildJsonMessage(errMsg))
           }
           operationDone = true
         } else {
@@ -329,19 +349,46 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
     state == TOperationState.TIMEDOUT_STATE
   }
 
+  /**
+   * Write a single SSE frame. If `data` contains newlines, each line
+   * is written as a separate `data:` field per the SSE specification.
+   */
   private def writeSseEvent(
       writer: OutputStreamWriter,
       outputStream: javax.servlet.ServletOutputStream,
       event: String,
       data: String): Unit = {
-    writer.write(s"event: $event\ndata: $data\n\n")
+    writer.write(s"event: $event\n")
+    for (line <- data.split("\n", -1)) {
+      writer.write(s"data: $line\n")
+    }
+    writer.write("\n")
     writer.flush()
     outputStream.flush() // force Jetty to send the chunk to the network
   }
 
-  private def escapeJson(s: String): String = {
-    if (s == null) return ""
-    jsonMapper.writeValueAsString(s).stripPrefix("\"").stripSuffix("\"")
+  /** Build a JSON object with a single "message" field using Jackson to guarantee valid JSON. */
+  private def buildJsonMessage(message: String): String = {
+    val node = jsonMapper.createObjectNode()
+    node.put("message", if (message == null) "" else message)
+    jsonMapper.writeValueAsString(node)
+  }
+
+  /**
+   * Send an error as an SSE event so that fetch-event-source clients can parse it.
+   * This avoids the content-type mismatch that occurs when returning JSON from an SSE endpoint.
+   */
+  private def sendSseError(
+      response: HttpServletResponse,
+      message: String): Unit = {
+    response.setStatus(HttpServletResponse.SC_OK)
+    response.setContentType("text/event-stream")
+    response.setCharacterEncoding("UTF-8")
+    response.setHeader("Cache-Control", "no-cache")
+    val outputStream = response.getOutputStream
+    val writer = new OutputStreamWriter(outputStream, StandardCharsets.UTF_8)
+    writeSseEvent(writer, outputStream, "error", buildJsonMessage(message))
+    writeSseEvent(writer, outputStream, "done", "{}")
   }
 
   private def sendJsonError(
@@ -351,7 +398,7 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
     response.setStatus(status)
     response.setContentType("application/json")
     response.setCharacterEncoding("UTF-8")
-    response.getWriter.write(s"""{"message":"${escapeJson(message)}"}""")
+    response.getWriter.write(buildJsonMessage(message))
     response.getWriter.flush()
   }
 
@@ -376,4 +423,13 @@ private[v1] class DataAgentResource extends ApiRequestContext with Logging {
         debug(s"Failed to close operation", e)
     }
   }
+}
+
+private[v1] object DataAgentResource {
+  private val MAX_TEXT_LENGTH = 32768
+  private val MAX_MODEL_LENGTH = 128
+  // Alphanumeric, hyphens, underscores, dots, slashes, and colons (covers e.g. "gpt-4o",
+  // "deepseek-chat", "accounts/fireworks/models/llama-v3-70b")
+  private val MODEL_PATTERN: Pattern = Pattern.compile("^[a-zA-Z0-9._/:@-]+$")
+  private val VALID_APPROVAL_MODES: Set[String] = Set("AUTO_APPROVE", "NORMAL", "STRICT")
 }

@@ -84,6 +84,9 @@ public class ApprovalMiddleware implements AgentMiddleware {
       LOG.info("Tool '{}' approved by user (requestId={})", toolName, requestId);
       return null;
     } catch (TimeoutException e) {
+      // Complete the future so that a late resolve() call is a harmless no-op
+      // instead of completing a dangling future.
+      future.completeExceptionally(e);
       LOG.warn("Approval timed out for tool '{}' (requestId={})", toolName, requestId);
       return new ToolCallDenial("Approval timed out after " + timeoutSeconds + "s for " + toolName);
     } catch (InterruptedException e) {

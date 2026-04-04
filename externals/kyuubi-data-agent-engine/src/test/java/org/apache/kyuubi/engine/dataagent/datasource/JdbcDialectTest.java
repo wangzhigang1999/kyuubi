@@ -51,13 +51,22 @@ public class JdbcDialectTest {
   }
 
   @Test
-  public void testRandomDistinctSampleColumn() {
-    JdbcDialect spark = JdbcDialect.fromUrl("jdbc:hive2://localhost:10009");
-    String sql = spark.randomDistinctSampleColumn("`db`.`table`", "`col`", 10, 50);
-    assertEquals(
-        "SELECT DISTINCT `col` FROM `db`.`table`"
-            + " TABLESAMPLE(10 PERCENT) WHERE `col` IS NOT NULL LIMIT 50",
-        sql);
+  public void testTrino() {
+    JdbcDialect d = JdbcDialect.fromUrl("jdbc:trino://localhost:9090");
+    assertNotNull(d);
+    assertEquals("trino", d.datasourceName());
+  }
+
+  @Test
+  public void testTrinoCaseInsensitive() {
+    assertNotNull(JdbcDialect.fromUrl("JDBC:TRINO://localhost:9090"));
+  }
+
+  @Test
+  public void testTrinoQuoteIdentifier() {
+    JdbcDialect trino = JdbcDialect.fromUrl("jdbc:trino://localhost:9090");
+    assertEquals("\"my_table\"", trino.quoteIdentifier("my_table"));
+    assertEquals("\" \"\"inject\"\" \"", trino.quoteIdentifier(" \"inject\" "));
   }
 
   @Test
@@ -80,17 +89,18 @@ public class JdbcDialectTest {
   }
 
   @Test
-  public void testSqliteRandomDistinctSampleColumn() {
-    JdbcDialect sqlite = JdbcDialect.fromUrl("jdbc:sqlite:test.db");
-    String sql = sqlite.randomDistinctSampleColumn("\"table\"", "\"col\"", 10, 50);
-    assertTrue(sql.contains("ORDER BY RANDOM()"));
-    assertTrue(sql.contains("LIMIT 50"));
-    assertFalse("SQLite should not use TABLESAMPLE", sql.contains("TABLESAMPLE"));
+  public void testMysql() {
+    JdbcDialect d = JdbcDialect.fromUrl("jdbc:mysql://localhost:3306");
+    assertNotNull(d);
+    assertEquals("mysql", d.datasourceName());
+    assertEquals("`my_table`", d.quoteIdentifier("my_table"));
   }
 
   @Test
-  public void testUnknownReturnsNull() {
-    assertNull(JdbcDialect.fromUrl("not-a-jdbc-url"));
+  public void testUnknownFallsBackToMysql() {
+    JdbcDialect d = JdbcDialect.fromUrl("jdbc:unknown://localhost");
+    assertNotNull(d);
+    assertEquals("mysql", d.datasourceName());
   }
 
   @Test

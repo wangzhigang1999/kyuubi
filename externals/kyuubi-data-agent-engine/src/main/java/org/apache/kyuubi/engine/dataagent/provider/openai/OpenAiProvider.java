@@ -25,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import javax.sql.DataSource;
 import org.apache.kyuubi.config.KyuubiConf;
+import org.apache.kyuubi.config.KyuubiReservedKeys;
 import org.apache.kyuubi.engine.dataagent.datasource.DataSourceFactory;
 import org.apache.kyuubi.engine.dataagent.prompt.SystemPromptBuilder;
 import org.apache.kyuubi.engine.dataagent.provider.DataAgentProvider;
@@ -99,7 +100,10 @@ public class OpenAiProvider implements DataAgentProvider {
         String jdbcUrl = jdbcUrlOpt.get();
         LOG.info(
             "Data Agent JDBC URL configured ({})", jdbcUrl.replaceAll("//.*@", "//<redacted>@"));
-        ds = DataSourceFactory.create(jdbcUrl);
+        scala.Option<String> userOpt =
+            conf.getOption(KyuubiReservedKeys.KYUUBI_SESSION_USER_KEY());
+        String sessionUser = userOpt.isDefined() ? userOpt.get() : null;
+        ds = DataSourceFactory.create(jdbcUrl, sessionUser);
         toolRegistry.register(new SqlQueryTool(ds, queryTimeoutSeconds));
         promptBuilder.jdbcUrl(jdbcUrl);
       }
@@ -114,6 +118,7 @@ public class OpenAiProvider implements DataAgentProvider {
               .addMiddleware(new LoggingMiddleware())
               .addMiddleware(approval)
               .maxIterations(maxIterations)
+              .toolTimeoutSeconds(queryTimeoutSeconds)
               .systemPrompt(promptBuilder.build())
               .build();
 

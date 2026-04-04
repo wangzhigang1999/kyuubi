@@ -183,4 +183,16 @@ class DataAgentMockLlmSuite extends HiveJDBCTestHelper with WithDataAgentEngine 
       assert(text.contains("1"))
     }
   }
+
+  test("provider exception surfaces as JDBC error and does not hang") {
+    withJdbcStatement() { stmt =>
+      val ex = intercept[java.sql.SQLException] {
+        stmt.executeQuery("__error__")
+      }
+      assert(ex.getMessage.contains("MockLlmProvider simulated failure"))
+      // Verify the session is still usable after the error
+      val (text, _) = executeAndCollect(stmt, "Hello after error")
+      assert(text.contains("[MockLLM]"))
+    }
+  }
 }

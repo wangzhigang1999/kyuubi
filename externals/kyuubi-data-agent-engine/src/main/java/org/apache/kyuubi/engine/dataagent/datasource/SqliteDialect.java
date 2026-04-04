@@ -35,16 +35,4 @@ public final class SqliteDialect implements JdbcDialect {
     return "\"" + escaped + "\"";
   }
 
-  @Override
-  public String randomDistinctSampleColumn(String table, String column, int percent, int limit) {
-    // SQLite has no TABLESAMPLE; use ORDER BY RANDOM() instead
-    return "SELECT DISTINCT "
-        + column
-        + " FROM "
-        + table
-        + " WHERE "
-        + column
-        + " IS NOT NULL ORDER BY RANDOM() LIMIT "
-        + limit;
-  }
 }

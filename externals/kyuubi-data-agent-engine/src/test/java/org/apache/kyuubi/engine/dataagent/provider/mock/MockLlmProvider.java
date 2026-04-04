@@ -100,6 +100,11 @@ public class MockLlmProvider implements DataAgentProvider {
     String question = request.getQuestion();
     onEvent.accept(new AgentStart());
 
+    // Trigger an error for testing the error path in ExecuteStatement
+    if (question.trim().equalsIgnoreCase("__error__")) {
+      throw new RuntimeException("MockLlmProvider simulated failure");
+    }
+
     // First check natural-language mappings, then fall back to SQL pattern extraction
     String sql = resolveToSql(question);
     if (sql != null) {

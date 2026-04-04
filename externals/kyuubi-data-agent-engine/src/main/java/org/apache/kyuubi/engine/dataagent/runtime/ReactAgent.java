@@ -35,9 +35,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import org.apache.kyuubi.engine.dataagent.runtime.event.AgentError;
@@ -73,7 +75,11 @@ public class ReactAgent implements Closeable {
   private final List<AgentMiddleware> middlewares;
   private final int maxIterations;
   private final String systemPrompt;
+  private final long toolTimeoutSeconds;
   private final ExecutorService toolExecutor;
+
+  /** Default tool execution timeout: 5 minutes. */
+  private static final long DEFAULT_TOOL_TIMEOUT_SECONDS = 300;
 
   public ReactAgent(
       OpenAIClient client,
@@ -81,13 +87,15 @@ public class ReactAgent implements Closeable {
       ToolRegistry toolRegistry,
       List<AgentMiddleware> middlewares,
       int maxIterations,
-      String systemPrompt) {
+      String systemPrompt,
+      long toolTimeoutSeconds) {
     this.client = client;
     this.defaultModelName = modelName;
     this.toolRegistry = toolRegistry;
     this.middlewares = middlewares != null ? middlewares : Collections.emptyList();
     this.maxIterations = maxIterations;
     this.systemPrompt = systemPrompt;
+    this.toolTimeoutSeconds = toolTimeoutSeconds > 0 ? toolTimeoutSeconds : DEFAULT_TOOL_TIMEOUT_SECONDS;
     // Plain Java thread pool — intentionally not using Kyuubi's Scala ThreadUtils because this
     // module is pure Java to keep the dependency footprint minimal.
     AtomicInteger threadCount = new AtomicInteger();
@@ -227,10 +235,15 @@ public class ReactAgent implements Closeable {
             ToolCallEntry entry = approved.get(i);
             String toolOutput;
             try {
-              toolOutput = futures.get(i).join();
-            } catch (Exception e) {
+              toolOutput = futures.get(i).get(toolTimeoutSeconds, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+              futures.get(i).cancel(true);
+              toolOutput = "Tool execution timed out after " + toolTimeoutSeconds + "s";
+            } catch (ExecutionException e) {
               Throwable cause = e.getCause() != null ? e.getCause() : e;
               toolOutput = "Tool execution error: " + cause.getMessage();
+            } catch (Exception e) {
+              toolOutput = "Tool execution error: " + e.getMessage();
             }
 
             String modifiedResult =
@@ -569,6 +582,7 @@ public class ReactAgent implements Closeable {
     private final List<AgentMiddleware> middlewares = new ArrayList<>();
     private int maxIterations = 20;
     private String systemPrompt;
+    private long toolTimeoutSeconds = DEFAULT_TOOL_TIMEOUT_SECONDS;
 
     public Builder client(OpenAIClient client) {
       this.client = client;
@@ -603,12 +617,18 @@ public class ReactAgent implements Closeable {
       return this;
     }
 
+    public Builder toolTimeoutSeconds(long toolTimeoutSeconds) {
+      this.toolTimeoutSeconds = toolTimeoutSeconds;
+      return this;
+    }
+
     public ReactAgent build() {
       if (client == null) throw new IllegalStateException("client is required");
       if (modelName == null) throw new IllegalStateException("modelName is required");
       if (toolRegistry == null) throw new IllegalStateException("toolRegistry is required");
       return new ReactAgent(
-          client, modelName, toolRegistry, middlewares, maxIterations, systemPrompt);
+          client, modelName, toolRegistry, middlewares, maxIterations, systemPrompt,
+          toolTimeoutSeconds);
     }
   }
 }

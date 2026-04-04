@@ -122,12 +122,12 @@ class IncrementalFetchIteratorCompactionSuite extends KyuubiFunSuite {
     assert(iter.hasNext)
     assert(iter.next() === 1500)
 
-    // fetchAbsolute to position 0 -- this is before the compacted range,
-    // but should be clamped to the available range
+    // fetchAbsolute to position 0 -- before the compacted range,
+    // should be clamped to trimmedCount (1024)
     iter.fetchAbsolute(0)
-    // After compaction, trimmedCount = 1024, so position 0 is valid
-    // because fetchAbsolute clamps to (0, logicalSize)
-    assert(iter.getPosition === 0)
+    assert(iter.getPosition === COMPACT_THRESHOLD)
+    assert(iter.hasNext)
+    assert(iter.next() === COMPACT_THRESHOLD)
   }
 
   test("interleaved append and consume with compaction") {

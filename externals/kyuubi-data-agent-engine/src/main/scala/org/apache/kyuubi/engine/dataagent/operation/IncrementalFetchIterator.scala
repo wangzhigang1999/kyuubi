@@ -57,7 +57,7 @@ class IncrementalFetchIterator[A] extends FetchIterator[A] {
 
   override def fetchAbsolute(pos: Long): Unit = lock.synchronized {
     val logicalSize = trimmedCount + buffer.size
-    position = (pos max 0) min logicalSize
+    position = (pos max trimmedCount) min logicalSize
     fetchStart = position
     compactIfNeeded()
   }

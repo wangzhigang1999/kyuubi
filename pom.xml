@@ -1204,6 +1204,24 @@
             </dependency>
 
             <dependency>
+                <groupId>com.openai</groupId>
+                <artifactId>openai-java</artifactId>
+                <version>${openai.sdk.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.github.victools</groupId>
+                <artifactId>jsonschema-generator</artifactId>
+                <version>${victools.jsonschema.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.github.victools</groupId>
+                <artifactId>jsonschema-module-jackson</artifactId>
+                <version>${victools.jsonschema.version}</version>
+            </dependency>
+
+            <dependency>
                 <groupId>org.threeten</groupId>
                 <artifactId>threeten-extra</artifactId>
                 <version>${threeten.version}</version>

@@ -36,8 +36,25 @@ public final class DataSourceFactory {
    * @return a HikariCP-backed DataSource
    */
   public static DataSource create(String jdbcUrl) {
+    return create(jdbcUrl, null);
+  }
+
+  /**
+   * Create a pooled DataSource from a JDBC URL with an explicit username. When the data-agent
+   * connects back to Kyuubi Server, the username determines the proxy user for the downstream
+   * engine (e.g. Spark). Without it, Kyuubi defaults to "anonymous" which typically fails Hadoop
+   * impersonation checks.
+   *
+   * @param jdbcUrl the JDBC connection URL
+   * @param user the username for the JDBC connection, may be null
+   * @return a HikariCP-backed DataSource
+   */
+  public static DataSource create(String jdbcUrl, String user) {
     HikariConfig config = new HikariConfig();
     config.setJdbcUrl(jdbcUrl);
+    if (user != null && !user.isEmpty()) {
+      config.setUsername(user);
+    }
     config.setMaximumPoolSize(DEFAULT_MAX_POOL_SIZE);
     config.setMinimumIdle(1);
     config.setInitializationFailTimeout(-1);

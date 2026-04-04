@@ -24,7 +24,7 @@
         <div class="header-logo">
           <el-icon :size="16" color="#fff"><ChatDotRound /></el-icon>
         </div>
-        <span class="header-title">Data Agent</span>
+        <span class="header-title">{{ $t('data_agent.title') }}</span>
         <el-tag
           v-if="sessionHandle"
           size="small"
@@ -38,14 +38,14 @@
           size="small"
           effect="plain"
           class="datasource-tag"
-          :title="jdbcUrl || 'Server default'">
+          :title="jdbcUrl || $t('data_agent.server_default')">
           <el-icon :size="12"><Link /></el-icon>
           {{ datasourceLabel }}
         </el-tag>
       </div>
       <div class="header-right">
         <el-tooltip
-          content="Controls whether tool calls require your approval before execution"
+          :content="$t('data_agent.approval_tooltip')"
           placement="bottom"
           :show-after="500">
           <el-select
@@ -57,9 +57,9 @@
             <template #prefix>
               <el-icon :size="14"><Lock /></el-icon>
             </template>
-            <el-option label="Auto Approve" value="AUTO_APPROVE" />
-            <el-option label="Normal" value="NORMAL" />
-            <el-option label="Strict" value="STRICT" />
+            <el-option :label="$t('data_agent.auto_approve')" value="AUTO_APPROVE" />
+            <el-option :label="$t('data_agent.normal')" value="NORMAL" />
+            <el-option :label="$t('data_agent.strict')" value="STRICT" />
           </el-select>
         </el-tooltip>
         <el-button
@@ -69,15 +69,15 @@
           plain
           :icon="VideoPause"
           @click="cancelStream">
-          Stop
+          {{ $t('data_agent.stop') }}
         </el-button>
         <el-button
-          v-if="sessionHandle"
+          v-if="sessionHandle || messages.length > 0"
           size="small"
           plain
           :icon="RefreshRight"
           @click="resetSession">
-          New Chat
+          {{ $t('data_agent.new_chat') }}
         </el-button>
       </div>
     </div>
@@ -90,10 +90,9 @@
           <div class="welcome-icon">
             <el-icon :size="36" color="#fff"><ChatDotRound /></el-icon>
           </div>
-          <h2>Data Agent</h2>
+          <h2>{{ $t('data_agent.title') }}</h2>
           <p class="welcome-desc">
-            Ask questions about your data in natural language. The agent will
-            explore schemas, write SQL queries, and analyze results.
+            {{ $t('data_agent.welcome_desc') }}
           </p>
         </div>
 
@@ -101,40 +100,46 @@
         <div class="config-card">
           <div class="config-card-header">
             <el-icon :size="14"><Setting /></el-icon>
-            <span>Connection</span>
+            <span>{{ $t('data_agent.connection') }}</span>
           </div>
           <div class="config-card-body">
-            <div class="ds-row">
-              <div class="ds-field">
-                <label>Engine</label>
-                <el-select
-                  v-model="selectedEngine"
-                  :disabled="!!sessionHandle"
-                  placeholder="Server default"
-                  size="default"
-                  clearable
-                  @change="onEngineChange">
-                  <el-option
-                    v-for="item in engineOptions"
-                    :key="item.value"
-                    :label="item.label"
-                    :value="item.value" />
-                </el-select>
-              </div>
-              <div class="ds-field ds-field-grow">
-                <label>JDBC URL</label>
-                <el-input
+            <div class="ds-field ds-field-grow">
+              <label>{{ $t('data_agent.jdbc_url') }}</label>
+              <el-tooltip
+                :disabled="!sessionHandle"
+                :content="$t('data_agent.change_jdbc')"
+                placement="top">
+                <el-autocomplete
                   v-model="jdbcUrl"
                   :disabled="!!sessionHandle"
-                  placeholder="Leave empty to use server default"
+                  :placeholder="$t('data_agent.jdbc_placeholder')"
+                  :fetch-suggestions="queryJdbcSuggestions"
+                  :trigger-on-focus="true"
                   size="default"
-                  clearable />
-              </div>
+                  clearable
+                  style="width: 100%">
+                  <template #default="{ item }">
+                    <div class="jdbc-option">
+                      <div class="jdbc-option-text">
+                        <span class="jdbc-option-label">{{ item.label }}</span>
+                        <span class="jdbc-option-url">{{ item.value }}</span>
+                      </div>
+                      <button
+                        v-if="item.isHistory"
+                        class="jdbc-option-del"
+                        :title="$t('operation.delete')"
+                        @click.stop="removeJdbcFromHistory(item.value)">
+                        <el-icon :size="12"><Close /></el-icon>
+                      </button>
+                    </div>
+                  </template>
+                </el-autocomplete>
+              </el-tooltip>
             </div>
           </div>
           <div class="config-card-section">
             <el-icon :size="14"><ChatLineSquare /></el-icon>
-            <span>Try asking</span>
+            <span>{{ $t('data_agent.try_asking') }}</span>
           </div>
           <div class="config-card-body">
             <div class="quick-chips">
@@ -161,6 +166,7 @@
           :text="msg.text"
           :blocks="msg.blocks"
           :streaming="streaming && msg.id === messages[messages.length - 1]?.id"
+          :approving-request-id="approvingRequestId"
           @approve="(id: string) => handleApproval(id, true)"
           @deny="(id: string) => handleApproval(id, false)" />
       </TransitionGroup>
@@ -193,14 +199,15 @@
         <el-icon class="is-loading" :size="14" color="#409eff"
           ><Loading
         /></el-icon>
-        <span>Starting Data Agent engine...</span>
+        <span>{{ $t('data_agent.starting_engine') }}</span>
       </div>
     </Transition>
   </div>
 </template>
 
 <script lang="ts" setup>
-  import { ref, computed, nextTick, watch, onBeforeUnmount, onMounted } from 'vue'
+  import { ref, computed, watch, onBeforeUnmount, onMounted } from 'vue'
+  import { useI18n } from 'vue-i18n'
   import {
     ChatDotRound,
     ChatLineSquare,
@@ -222,6 +229,8 @@
   import InputBar from './components/InputBar.vue'
   import { openSession, closeSession, getSession, chatStream, approveToolCall } from '@/api/data-agent'
 
+  const { t } = useI18n()
+
   interface Message {
     id: number
     role: 'user' | 'assistant'
@@ -229,20 +238,61 @@
     blocks?: ChatBlock[]
   }
 
-  const engineOptions = [
-    { label: 'Spark SQL', value: 'SPARK_SQL' },
-    { label: 'Trino', value: 'TRINO' },
-    { label: 'Hive SQL', value: 'HIVE_SQL' },
-    { label: 'Flink SQL', value: 'FLINK_SQL' },
-    { label: 'JDBC', value: 'JDBC' }
+  const jdbcTemplates = [
+    { label: 'Spark / Hive (Thrift)', value: 'jdbc:hive2://localhost:10009/default;user=username;password=password', isHistory: false },
+    { label: 'Trino', value: 'jdbc:trino://localhost:8080/catalog/schema?user=username&password=password', isHistory: false },
+    { label: 'MySQL', value: 'jdbc:mysql://localhost:3306/mydb?user=username&password=password&useSSL=false', isHistory: false }
   ]
-  const JDBC_TEMPLATE = 'jdbc:hive2://localhost:10009/default'
 
-  const quickQuestions = [
-    { text: 'What tables are in this database?', icon: Grid },
-    { text: 'Show me the schema overview', icon: Search },
-    { text: 'How many records are in each table?', icon: DataAnalysis }
-  ]
+  const JDBC_HISTORY_KEY = 'data-agent-jdbc-history'
+
+  function loadJdbcHistory(): string[] {
+    try {
+      return JSON.parse(localStorage.getItem(JDBC_HISTORY_KEY) || '[]')
+    } catch {
+      return []
+    }
+  }
+
+  function saveJdbcToHistory(url: string) {
+    if (!url.trim()) return
+    const history = loadJdbcHistory().filter((u) => u !== url)
+    history.unshift(url)
+    if (history.length > 10) history.length = 10
+    localStorage.setItem(JDBC_HISTORY_KEY, JSON.stringify(history))
+  }
+
+  function removeJdbcFromHistory(url: string) {
+    const history = loadJdbcHistory().filter((u) => u !== url)
+    localStorage.setItem(JDBC_HISTORY_KEY, JSON.stringify(history))
+  }
+
+  interface JdbcSuggestion {
+    label: string
+    value: string
+    isHistory: boolean
+  }
+
+  function queryJdbcSuggestions(query: string, cb: (results: JdbcSuggestion[]) => void) {
+    const history = loadJdbcHistory()
+    const templateValues = new Set(jdbcTemplates.map((t) => t.value))
+    const historyItems: JdbcSuggestion[] = history
+      .filter((u) => !templateValues.has(u))
+      .map((u) => ({ label: t('data_agent.history'), value: u, isHistory: true }))
+    const all = [...historyItems, ...jdbcTemplates]
+    if (!query) {
+      cb(all)
+    } else {
+      const q = query.toLowerCase()
+      cb(all.filter((item) => item.value.toLowerCase().includes(q) || item.label.toLowerCase().includes(q)))
+    }
+  }
+
+  const quickQuestions = computed(() => [
+    { text: t('data_agent.quick_tables'), icon: Grid },
+    { text: t('data_agent.quick_schema'), icon: Search },
+    { text: t('data_agent.quick_records'), icon: DataAnalysis }
+  ])
 
   const STORAGE_KEY = 'data-agent-state'
 
@@ -250,7 +300,6 @@
     sessionHandle: string
     messages: Message[]
     msgIdCounter: number
-    selectedEngine: string
     jdbcUrl: string
     approvalMode: string
   }
@@ -260,7 +309,6 @@
       sessionHandle: sessionHandle.value,
       messages: messages.value,
       msgIdCounter,
-      selectedEngine: selectedEngine.value,
       jdbcUrl: jdbcUrl.value,
       approvalMode: approvalMode.value
     }
@@ -275,7 +323,6 @@
       sessionHandle.value = state.sessionHandle || ''
       messages.value = state.messages || []
       msgIdCounter = state.msgIdCounter || 0
-      selectedEngine.value = state.selectedEngine || ''
       jdbcUrl.value = state.jdbcUrl || ''
       approvalMode.value = state.approvalMode || 'NORMAL'
     } catch {
@@ -287,7 +334,6 @@
     sessionStorage.removeItem(STORAGE_KEY)
   }
 
-  const selectedEngine = ref('')
   const jdbcUrl = ref('')
   const APPROVAL_MODE_KEY = 'data-agent-approval-mode'
   const approvalMode = ref(localStorage.getItem(APPROVAL_MODE_KEY) || 'NORMAL')
@@ -296,26 +342,20 @@
     localStorage.setItem(APPROVAL_MODE_KEY, val)
   }
 
-  function onEngineChange(engine: string) {
-    if (engine) {
-      jdbcUrl.value = JDBC_TEMPLATE
-    } else {
-      jdbcUrl.value = ''
-    }
-  }
   const messagesContainer = ref<HTMLDivElement>()
   const messages = ref<Message[]>([])
   const sessionHandle = ref('')
   const streaming = ref(false)
   const errorMessage = ref('')
   const initializing = ref(false)
+  const approvingRequestId = ref('')
   let msgIdCounter = 0
   let abortController: AbortController | null = null
   let isUnmounted = false
 
   const datasourceLabel = computed(() => {
     const url = jdbcUrl.value.trim()
-    if (!url) return selectedEngine.value || 'Server default'
+    if (!url) return t('data_agent.server_default')
     // Extract meaningful part from JDBC URL: show host/database or engine type
     try {
       // e.g. jdbc:hive2://host:port/db#... → host:port/db
@@ -324,14 +364,14 @@
       if (beforeHash && beforeHash.length <= 40) return beforeHash
       return beforeHash.substring(0, 37) + '...'
     } catch {
-      return selectedEngine.value || url.substring(0, 30)
+      return url.substring(0, 30)
     }
   })
 
   const inputPlaceholder = computed(() => {
-    if (initializing.value) return 'Starting Data Agent engine...'
-    if (streaming.value) return 'Waiting for response...'
-    return 'Ask a question about your data...'
+    if (initializing.value) return t('data_agent.starting_engine')
+    if (streaming.value) return t('data_agent.waiting_response')
+    return t('data_agent.input_placeholder')
   })
 
   async function ensureSession(): Promise<boolean> {
@@ -341,7 +381,7 @@
         return true
       } catch {
         sessionHandle.value = ''
-        ElMessage.warning('Session has expired. Please click "New Chat" to start a new conversation.')
+        ElMessage.warning(t('data_agent.session_expired'))
         return false
       }
     }
@@ -350,18 +390,16 @@
       const configs: Record<string, string> = {
         'kyuubi.engine.type': 'DATA_AGENT'
       }
-      if (selectedEngine.value) {
-        configs['kyuubi.engine.data.agent.engine.type'] = selectedEngine.value
-      }
       if (jdbcUrl.value.trim()) {
         configs['kyuubi.engine.data.agent.jdbc.url'] = jdbcUrl.value.trim()
       }
       const res: any = await openSession({ configs })
       sessionHandle.value = res.identifier || res.id || ''
       if (!sessionHandle.value) throw new Error('No session handle returned')
+      saveJdbcToHistory(jdbcUrl.value.trim())
       return true
     } catch (e: any) {
-      ElMessage.error(`Failed to start session: ${e.message}`)
+      ElMessage.error(t('data_agent.session_start_failed', { message: e.message }))
       return false
     } finally {
       initializing.value = false
@@ -373,8 +411,9 @@
     if (sessionHandle.value) {
       try {
         await closeSession(sessionHandle.value)
-      } catch {
-        /* ignore */
+      } catch (e: any) {
+        console.warn('Failed to close session:', e.message)
+        ElMessage.warning(t('data_agent.session_close_failed'))
       }
     }
     sessionHandle.value = ''
@@ -410,7 +449,7 @@
       )
     } catch (e: any) {
       if (e.name !== 'AbortError') {
-        errorMessage.value = e.message || 'Stream error'
+        errorMessage.value = e.message || t('data_agent.stream_error')
       }
     } finally {
       if (!isUnmounted) {
@@ -432,6 +471,7 @@
       parsed = JSON.parse(event.data)
     } catch {
       console.warn('Invalid SSE event data:', event.data)
+      errorMessage.value = t('data_agent.malformed_response')
       return
     }
 
@@ -492,7 +532,7 @@
         })
         break
       case 'error':
-        errorMessage.value = parsed.message || 'Unknown error'
+        errorMessage.value = parsed.message || t('data_agent.unknown_error')
         break
       case 'done':
         break
@@ -501,13 +541,17 @@
   }
 
   async function handleApproval(requestId: string, approved: boolean) {
-    if (!sessionHandle.value) return
+    if (!sessionHandle.value || approvingRequestId.value) return
+    approvingRequestId.value = requestId
     // Update block status immediately for responsiveness
     for (const msg of messages.value) {
       if (!msg.blocks) continue
       for (const block of msg.blocks) {
         if (block.type === 'approval_request' && block.requestId === requestId) {
-          if (block.approvalStatus !== 'pending') return // prevent double-click
+          if (block.approvalStatus !== 'pending') {
+            approvingRequestId.value = ''
+            return // prevent double-click
+          }
           block.approvalStatus = approved ? 'approved' : 'denied'
         }
       }
@@ -515,7 +559,7 @@
     try {
       await approveToolCall(sessionHandle.value, requestId, approved)
     } catch (e: any) {
-      errorMessage.value = `Approval failed: ${e.message}`
+      errorMessage.value = t('data_agent.approval_failed', { message: e.message })
       // Revert status so user can retry
       for (const msg of messages.value) {
         if (!msg.blocks) continue
@@ -525,6 +569,8 @@
           }
         }
       }
+    } finally {
+      approvingRequestId.value = ''
     }
   }
 
@@ -554,7 +600,7 @@
   }
 
   watch(
-    [sessionHandle, selectedEngine, jdbcUrl, approvalMode],
+    [sessionHandle, jdbcUrl, approvalMode],
     () => debouncedSave()
   )
 
@@ -673,7 +719,7 @@
       color: #1d2129;
     }
     .welcome-desc {
-      max-width: 460px;
+      max-width: 560px;
       margin: 0;
       font-size: 14px;
       color: #86909c;
@@ -715,10 +761,6 @@
   .config-card-body {
     padding: 16px;
   }
-  .ds-row {
-    display: flex;
-    gap: 12px;
-  }
   .ds-field {
     display: flex;
     flex-direction: column;
@@ -735,6 +777,50 @@
   .ds-field-grow {
     flex: 1;
     min-width: 0;
+  }
+
+  // JDBC template dropdown options
+  .jdbc-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0;
+    line-height: 1.4;
+  }
+  .jdbc-option-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+  }
+  .jdbc-option-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #303133;
+  }
+  .jdbc-option-url {
+    font-size: 11px;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    color: #909399;
+  }
+  .jdbc-option-del {
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: #c0c4cc;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+
+    &:hover {
+      background: #fee;
+      color: #f56c6c;
+    }
   }
 
   // Card section header

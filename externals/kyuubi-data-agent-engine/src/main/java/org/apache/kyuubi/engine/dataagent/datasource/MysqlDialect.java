@@ -17,16 +17,16 @@
 
 package org.apache.kyuubi.engine.dataagent.datasource;
 
-/** Spark SQL dialect. Uses backtick quoting for identifiers. */
-public final class SparkDialect implements JdbcDialect {
+/** MySQL dialect. Uses backtick quoting for identifiers. */
+public final class MysqlDialect implements JdbcDialect {
 
-  static final SparkDialect INSTANCE = new SparkDialect();
+  static final MysqlDialect INSTANCE = new MysqlDialect();
 
-  private SparkDialect() {}
+  private MysqlDialect() {}
 
   @Override
   public String datasourceName() {
-    return "spark";
+    return "mysql";
   }
 
   @Override
@@ -34,5 +34,4 @@ public final class SparkDialect implements JdbcDialect {
     String escaped = identifier.replace("`", "``");
     return "`" + escaped + "`";
   }
-
 }

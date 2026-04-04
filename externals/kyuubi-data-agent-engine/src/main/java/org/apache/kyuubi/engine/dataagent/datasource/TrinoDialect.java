@@ -17,22 +17,22 @@
 
 package org.apache.kyuubi.engine.dataagent.datasource;
 
-/** Spark SQL dialect. Uses backtick quoting for identifiers. */
-public final class SparkDialect implements JdbcDialect {
+/** Trino SQL dialect. Uses double-quote quoting for identifiers. */
+public final class TrinoDialect implements JdbcDialect {
 
-  static final SparkDialect INSTANCE = new SparkDialect();
+  static final TrinoDialect INSTANCE = new TrinoDialect();
 
-  private SparkDialect() {}
+  private TrinoDialect() {}
 
   @Override
   public String datasourceName() {
-    return "spark";
+    return "trino";
   }
 
   @Override
   public String quoteIdentifier(String identifier) {
-    String escaped = identifier.replace("`", "``");
-    return "`" + escaped + "`";
+    String escaped = identifier.replace("\"", "\"\"");
+    return "\"" + escaped + "\"";
   }
 
 }

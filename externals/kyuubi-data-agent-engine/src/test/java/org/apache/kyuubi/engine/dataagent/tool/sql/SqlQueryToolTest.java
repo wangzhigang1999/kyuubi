@@ -144,6 +144,87 @@ public class SqlQueryToolTest {
     assertFalse(result.startsWith("Error:"));
   }
 
+  @Test
+  public void testQueryTimeoutReturnsError() throws Exception {
+    // Create a DataSource that simulates a timeout by throwing SQLTimeoutException
+    javax.sql.DataSource slowDs =
+        new javax.sql.DataSource() {
+          @Override
+          public Connection getConnection() throws java.sql.SQLException {
+            Connection real = ds.getConnection();
+            return (Connection)
+                java.lang.reflect.Proxy.newProxyInstance(
+                    getClass().getClassLoader(),
+                    new Class<?>[] {Connection.class},
+                    (proxy, method, args) -> {
+                      if ("createStatement".equals(method.getName())) {
+                        Statement realStmt = real.createStatement();
+                        return java.lang.reflect.Proxy.newProxyInstance(
+                            getClass().getClassLoader(),
+                            new Class<?>[] {Statement.class},
+                            (p2, m2, a2) -> {
+                              if ("execute".equals(m2.getName())) {
+                                realStmt.close();
+                                real.close();
+                                throw new java.sql.SQLTimeoutException(
+                                    "Query timed out after 1 seconds");
+                              }
+                              return m2.invoke(realStmt, a2);
+                            });
+                      }
+                      if ("close".equals(method.getName())) {
+                        real.close();
+                        return null;
+                      }
+                      return method.invoke(real, args);
+                    });
+          }
+
+          @Override
+          public Connection getConnection(String u, String p) throws java.sql.SQLException {
+            return getConnection();
+          }
+
+          @Override
+          public java.io.PrintWriter getLogWriter() {
+            return null;
+          }
+
+          @Override
+          public void setLogWriter(java.io.PrintWriter out) {}
+
+          @Override
+          public void setLoginTimeout(int seconds) {}
+
+          @Override
+          public int getLoginTimeout() {
+            return 0;
+          }
+
+          @Override
+          public java.util.logging.Logger getParentLogger() {
+            return null;
+          }
+
+          @Override
+          public <T> T unwrap(Class<T> iface) {
+            return null;
+          }
+
+          @Override
+          public boolean isWrapperFor(Class<?> iface) {
+            return false;
+          }
+        };
+
+    SqlQueryTool timeoutTool = new SqlQueryTool(slowDs, 1);
+    SqlQueryArgs args = new SqlQueryArgs();
+    args.sql = "SELECT * FROM large_table";
+    String result = timeoutTool.execute(args);
+    assertTrue("Expected error on timeout", result.startsWith("Error:"));
+    assertTrue("Expected timeout message", result.contains("timed out"));
+  }
+
   // --- Helpers ---
 
   private SQLiteDataSource createDataSource() {
