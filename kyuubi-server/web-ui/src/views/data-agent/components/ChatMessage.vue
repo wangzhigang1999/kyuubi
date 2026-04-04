@@ -44,228 +44,271 @@
         <el-icon :size="16" color="#fff"><ChatDotRound /></el-icon>
       </div>
       <div class="bubble-wrapper">
-      <div class="assistant-bubble">
-        <div v-for="(block, idx) in blocks" :key="idx" class="assistant-block">
-          <!-- Text block -->
-          <div v-if="block.type === 'text'" class="text-block">
+        <div class="assistant-bubble">
+          <div
+            v-for="(block, idx) in blocks"
+            :key="idx"
+            class="assistant-block">
+            <!-- Text block -->
+            <div v-if="block.type === 'text'" class="text-block">
+              <div
+                class="markdown-body"
+                v-html="renderMarkdown(block.text || '')"></div>
+            </div>
+
+            <!-- Approval request block: pending state -->
             <div
-              class="markdown-body"
-              v-html="renderMarkdown(block.text || '')"></div>
-          </div>
+              v-if="
+                block.type === 'approval_request' &&
+                block.approvalStatus === 'pending'
+              "
+              class="approval-block">
+              <div class="approval-header">
+                <div class="approval-icon">
+                  <el-icon :size="16" color="#e6a23c"><Warning /></el-icon>
+                </div>
+                <div class="approval-info">
+                  <span class="approval-title">{{
+                    $t('data_agent.approval_required')
+                  }}</span>
+                  <span class="approval-tool">
+                    <span class="tool-name-inline">{{ block.name }}</span>
+                    <el-tag size="small" type="danger" effect="plain">{{
+                      block.riskLevel
+                    }}</el-tag>
+                  </span>
+                </div>
+              </div>
+              <div v-if="block.args" class="approval-args">
+                <div class="tool-section-label">{{
+                  $t('data_agent.arguments')
+                }}</div>
+                <pre class="tool-pre">{{ formatArgs(block.args) }}</pre>
+              </div>
+              <div class="approval-actions">
+                <el-button
+                  type="primary"
+                  size="small"
+                  :icon="Check"
+                  :loading="props.approvingRequestId === block.requestId"
+                  :disabled="!!props.approvingRequestId"
+                  @click="emit('approve', block.requestId!)">
+                  {{ $t('data_agent.approve') }}
+                </el-button>
+                <el-button
+                  type="danger"
+                  size="small"
+                  plain
+                  :icon="Close"
+                  :disabled="!!props.approvingRequestId"
+                  @click="emit('deny', block.requestId!)">
+                  {{ $t('data_agent.deny') }}
+                </el-button>
+              </div>
+            </div>
 
-          <!-- Approval request block: pending state -->
-          <div
-            v-if="block.type === 'approval_request' && block.approvalStatus === 'pending'"
-            class="approval-block">
-            <div class="approval-header">
-              <div class="approval-icon">
-                <el-icon :size="16" color="#e6a23c"><Warning /></el-icon>
-              </div>
-              <div class="approval-info">
-                <span class="approval-title">{{ $t('data_agent.approval_required') }}</span>
-                <span class="approval-tool">
-                  <span class="tool-name-inline">{{ block.name }}</span>
-                  <el-tag size="small" type="danger" effect="plain">{{ block.riskLevel }}</el-tag>
-                </span>
-              </div>
-            </div>
-            <div v-if="block.args" class="approval-args">
-              <div class="tool-section-label">{{ $t('data_agent.arguments') }}</div>
-              <pre class="tool-pre">{{ formatArgs(block.args) }}</pre>
-            </div>
-            <div class="approval-actions">
-              <el-button
-                type="primary"
-                size="small"
-                :icon="Check"
-                :loading="props.approvingRequestId === block.requestId"
-                :disabled="!!props.approvingRequestId"
-                @click="emit('approve', block.requestId!)">
-                {{ $t('data_agent.approve') }}
-              </el-button>
-              <el-button
-                type="danger"
-                size="small"
-                plain
-                :icon="Close"
-                :disabled="!!props.approvingRequestId"
-                @click="emit('deny', block.requestId!)">
-                {{ $t('data_agent.deny') }}
-              </el-button>
-            </div>
-          </div>
-
-          <!-- Approval request block: resolved — renders like a normal tool_call -->
-          <div
-            v-if="block.type === 'approval_request' && block.approvalStatus !== 'pending'"
-            class="tool-call-block">
-            <div class="tool-header" @click="block.expanded = !block.expanded">
-              <div class="tool-header-left">
-                <div
-                  class="tool-dot"
-                  :class="{
-                    'is-running': block.result == null && block.approvalStatus === 'approved',
-                    'is-done': block.result != null && !block.isError,
-                    'is-error': block.isError || block.approvalStatus === 'denied'
-                  }"></div>
-                <span class="tool-name">{{ block.name }}</span>
-                <el-tag
-                  :type="block.approvalStatus === 'approved' ? 'success' : 'danger'"
-                  effect="plain"
-                  size="small">
-                  {{ block.approvalStatus === 'approved' ? $t('data_agent.approved') : $t('data_agent.denied') }}
-                </el-tag>
-              </div>
-              <div class="tool-header-right">
-                <span
-                  class="tool-status"
-                  :class="{
-                    'is-running': block.result == null && block.approvalStatus === 'approved',
-                    'is-done': block.result != null && !block.isError,
-                    'is-error': block.isError || block.approvalStatus === 'denied'
-                  }">
-                  {{
-                    block.approvalStatus === 'denied'
-                      ? $t('data_agent.denied')
-                      : block.result != null
-                        ? block.isError ? $t('data_agent.error') : $t('data_agent.done')
+            <!-- Approval request block: resolved — renders like a normal tool_call -->
+            <div
+              v-if="
+                block.type === 'approval_request' &&
+                block.approvalStatus !== 'pending'
+              "
+              class="tool-call-block">
+              <div
+                class="tool-header"
+                @click="block.expanded = !block.expanded">
+                <div class="tool-header-left">
+                  <div
+                    class="tool-dot"
+                    :class="{
+                      'is-running':
+                        block.result == null &&
+                        block.approvalStatus === 'approved',
+                      'is-done': block.result != null && !block.isError,
+                      'is-error':
+                        block.isError || block.approvalStatus === 'denied'
+                    }"></div>
+                  <span class="tool-name">{{ block.name }}</span>
+                  <el-tag
+                    :type="
+                      block.approvalStatus === 'approved' ? 'success' : 'danger'
+                    "
+                    effect="plain"
+                    size="small">
+                    {{
+                      block.approvalStatus === 'approved'
+                        ? $t('data_agent.approved')
+                        : $t('data_agent.denied')
+                    }}
+                  </el-tag>
+                </div>
+                <div class="tool-header-right">
+                  <span
+                    class="tool-status"
+                    :class="{
+                      'is-running':
+                        block.result == null &&
+                        block.approvalStatus === 'approved',
+                      'is-done': block.result != null && !block.isError,
+                      'is-error':
+                        block.isError || block.approvalStatus === 'denied'
+                    }">
+                    {{
+                      block.approvalStatus === 'denied'
+                        ? $t('data_agent.denied')
+                        : block.result != null
+                        ? block.isError
+                          ? $t('data_agent.error')
+                          : $t('data_agent.done')
                         : $t('data_agent.running')
-                  }}
-                </span>
-                <el-icon
-                  class="chevron"
-                  :class="{ 'is-expanded': block.expanded }">
-                  <ArrowDown />
-                </el-icon>
+                    }}
+                  </span>
+                  <el-icon
+                    class="chevron"
+                    :class="{ 'is-expanded': block.expanded }">
+                    <ArrowDown />
+                  </el-icon>
+                </div>
               </div>
+              <Transition name="tool-expand">
+                <div v-if="block.expanded" class="tool-body">
+                  <div v-if="block.args" class="tool-section">
+                    <div class="tool-section-label">{{
+                      $t('data_agent.arguments')
+                    }}</div>
+                    <div class="tool-pre-wrapper">
+                      <pre class="tool-pre">{{ formatArgs(block.args) }}</pre>
+                      <button
+                        class="copy-btn"
+                        :title="$t('data_agent.copy')"
+                        @click.stop="copyText(block.args || '')">
+                        <el-icon :size="12"><DocumentCopy /></el-icon>
+                      </button>
+                    </div>
+                  </div>
+                  <div v-if="block.result != null" class="tool-section">
+                    <div class="tool-section-label">{{
+                      $t('data_agent.result')
+                    }}</div>
+                    <div v-if="block.isError" class="tool-pre-wrapper">
+                      <pre class="tool-pre is-error">{{ block.result }}</pre>
+                    </div>
+                    <div v-else class="tool-result-markdown">
+                      <div
+                        class="markdown-body"
+                        v-html="renderMarkdown(block.result || '')"></div>
+                      <button
+                        class="copy-btn"
+                        :title="$t('data_agent.copy')"
+                        @click.stop="copyText(block.result || '')">
+                        <el-icon :size="12"><DocumentCopy /></el-icon>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </Transition>
             </div>
-            <Transition name="tool-expand">
-              <div v-if="block.expanded" class="tool-body">
-                <div v-if="block.args" class="tool-section">
-                  <div class="tool-section-label">{{ $t('data_agent.arguments') }}</div>
-                  <div class="tool-pre-wrapper">
-                    <pre class="tool-pre">{{ formatArgs(block.args) }}</pre>
-                    <button
-                      class="copy-btn"
-                      :title="$t('data_agent.copy')"
-                      @click.stop="copyText(block.args || '')">
-                      <el-icon :size="12"><DocumentCopy /></el-icon>
-                    </button>
-                  </div>
+
+            <!-- Tool call block -->
+            <div v-if="block.type === 'tool_call'" class="tool-call-block">
+              <div
+                class="tool-header"
+                @click="block.expanded = !block.expanded">
+                <div class="tool-header-left">
+                  <div
+                    class="tool-dot"
+                    :class="{
+                      'is-running': block.result == null,
+                      'is-done': block.result != null && !block.isError,
+                      'is-error': block.isError
+                    }"></div>
+                  <span class="tool-name">{{ block.name }}</span>
                 </div>
-                <div v-if="block.result != null" class="tool-section">
-                  <div class="tool-section-label">{{ $t('data_agent.result') }}</div>
-                  <div v-if="block.isError" class="tool-pre-wrapper">
-                    <pre class="tool-pre is-error">{{ block.result }}</pre>
-                  </div>
-                  <div v-else class="tool-result-markdown">
-                    <div
-                      class="markdown-body"
-                      v-html="renderMarkdown(block.result || '')"></div>
-                    <button
-                      class="copy-btn"
-                      :title="$t('data_agent.copy')"
-                      @click.stop="copyText(block.result || '')">
-                      <el-icon :size="12"><DocumentCopy /></el-icon>
-                    </button>
-                  </div>
+                <div class="tool-header-right">
+                  <span
+                    class="tool-status"
+                    :class="{
+                      'is-running': block.result == null,
+                      'is-done': block.result != null && !block.isError,
+                      'is-error': block.isError
+                    }">
+                    {{
+                      block.result != null
+                        ? block.isError
+                          ? $t('data_agent.error')
+                          : $t('data_agent.done')
+                        : $t('data_agent.running')
+                    }}
+                  </span>
+                  <el-icon
+                    class="chevron"
+                    :class="{ 'is-expanded': block.expanded }">
+                    <ArrowDown />
+                  </el-icon>
                 </div>
               </div>
-            </Transition>
+              <Transition name="tool-expand">
+                <div v-if="block.expanded" class="tool-body">
+                  <div v-if="block.args" class="tool-section">
+                    <div class="tool-section-label">{{
+                      $t('data_agent.arguments')
+                    }}</div>
+                    <div class="tool-pre-wrapper">
+                      <pre class="tool-pre">{{ formatArgs(block.args) }}</pre>
+                      <button
+                        class="copy-btn"
+                        :title="$t('data_agent.copy')"
+                        @click.stop="copyText(block.args || '')">
+                        <el-icon :size="12"><DocumentCopy /></el-icon>
+                      </button>
+                    </div>
+                  </div>
+                  <div v-if="block.result != null" class="tool-section">
+                    <div class="tool-section-label">{{
+                      $t('data_agent.result')
+                    }}</div>
+                    <div v-if="block.isError" class="tool-pre-wrapper">
+                      <pre class="tool-pre is-error">{{ block.result }}</pre>
+                      <button
+                        class="copy-btn"
+                        :title="$t('data_agent.copy')"
+                        @click.stop="copyText(block.result || '')">
+                        <el-icon :size="12"><DocumentCopy /></el-icon>
+                      </button>
+                    </div>
+                    <div v-else class="tool-result-markdown">
+                      <div
+                        class="markdown-body"
+                        v-html="renderMarkdown(block.result || '')"></div>
+                      <button
+                        class="copy-btn"
+                        :title="$t('data_agent.copy')"
+                        @click.stop="copyText(block.result || '')">
+                        <el-icon :size="12"><DocumentCopy /></el-icon>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </Transition>
+            </div>
           </div>
 
-          <!-- Tool call block -->
-          <div v-if="block.type === 'tool_call'" class="tool-call-block">
-            <div class="tool-header" @click="block.expanded = !block.expanded">
-              <div class="tool-header-left">
-                <div
-                  class="tool-dot"
-                  :class="{
-                    'is-running': block.result == null,
-                    'is-done': block.result != null && !block.isError,
-                    'is-error': block.isError
-                  }"></div>
-                <span class="tool-name">{{ block.name }}</span>
-              </div>
-              <div class="tool-header-right">
-                <span
-                  class="tool-status"
-                  :class="{
-                    'is-running': block.result == null,
-                    'is-done': block.result != null && !block.isError,
-                    'is-error': block.isError
-                  }">
-                  {{
-                    block.result != null
-                      ? block.isError
-                        ? $t('data_agent.error')
-                        : $t('data_agent.done')
-                      : $t('data_agent.running')
-                  }}
-                </span>
-                <el-icon
-                  class="chevron"
-                  :class="{ 'is-expanded': block.expanded }">
-                  <ArrowDown />
-                </el-icon>
-              </div>
-            </div>
-            <Transition name="tool-expand">
-              <div v-if="block.expanded" class="tool-body">
-                <div v-if="block.args" class="tool-section">
-                  <div class="tool-section-label">{{ $t('data_agent.arguments') }}</div>
-                  <div class="tool-pre-wrapper">
-                    <pre class="tool-pre">{{ formatArgs(block.args) }}</pre>
-                    <button
-                      class="copy-btn"
-                      :title="$t('data_agent.copy')"
-                      @click.stop="copyText(block.args || '')">
-                      <el-icon :size="12"><DocumentCopy /></el-icon>
-                    </button>
-                  </div>
-                </div>
-                <div v-if="block.result != null" class="tool-section">
-                  <div class="tool-section-label">{{ $t('data_agent.result') }}</div>
-                  <div v-if="block.isError" class="tool-pre-wrapper">
-                    <pre class="tool-pre is-error">{{ block.result }}</pre>
-                    <button
-                      class="copy-btn"
-                      :title="$t('data_agent.copy')"
-                      @click.stop="copyText(block.result || '')">
-                      <el-icon :size="12"><DocumentCopy /></el-icon>
-                    </button>
-                  </div>
-                  <div v-else class="tool-result-markdown">
-                    <div
-                      class="markdown-body"
-                      v-html="renderMarkdown(block.result || '')"></div>
-                    <button
-                      class="copy-btn"
-                      :title="$t('data_agent.copy')"
-                      @click.stop="copyText(block.result || '')">
-                      <el-icon :size="12"><DocumentCopy /></el-icon>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </Transition>
+          <!-- Streaming indicator -->
+          <div v-if="streaming" class="streaming-indicator">
+            <span class="streaming-dot"></span>
+            <span class="streaming-label">{{
+              $t('data_agent.generating')
+            }}</span>
           </div>
         </div>
-
-        <!-- Streaming indicator -->
-        <div v-if="streaming" class="streaming-indicator">
-          <span class="streaming-dot"></span>
-          <span class="streaming-label">{{ $t('data_agent.generating') }}</span>
+        <div class="bubble-actions">
+          <button
+            class="bubble-action-btn"
+            :title="$t('data_agent.copy')"
+            @click="copyText(allAssistantText)">
+            <el-icon :size="12"><DocumentCopy /></el-icon>
+          </button>
         </div>
-      </div>
-      <div class="bubble-actions">
-        <button
-          class="bubble-action-btn"
-          :title="$t('data_agent.copy')"
-          @click="copyText(allAssistantText)">
-          <el-icon :size="12"><DocumentCopy /></el-icon>
-        </button>
-      </div>
       </div>
     </template>
   </div>
@@ -328,7 +371,9 @@
   function renderMarkdown(content: string): string {
     if (!content) return ''
     try {
-      return DOMPurify.sanitize(marked.parse(content, { async: false }) as string)
+      return DOMPurify.sanitize(
+        marked.parse(content, { async: false }) as string
+      )
     } catch {
       return DOMPurify.sanitize(content)
     }
@@ -730,7 +775,9 @@
       :deep(p) {
         margin: 0 0 6px;
         font-size: 12px;
-        &:last-child { margin-bottom: 0; }
+        &:last-child {
+          margin-bottom: 0;
+        }
       }
       :deep(table) {
         border-collapse: collapse;
@@ -826,8 +873,15 @@
   }
 
   @keyframes pulse-stream {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(0.75); }
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.4;
+      transform: scale(0.75);
+    }
   }
 
   .streaming-label {

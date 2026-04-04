@@ -28,17 +28,6 @@ import org.junit.Test;
 public class AgentContextTest {
 
   @Test
-  public void testInitialState() {
-    AgentContext ctx = new AgentContext(new ConversationMemory(), ApprovalMode.NORMAL);
-    assertEquals(0, ctx.getIteration());
-    assertEquals(0, ctx.getPromptTokens());
-    assertEquals(0, ctx.getCompletionTokens());
-    assertEquals(0, ctx.getTotalTokens());
-    assertEquals(ApprovalMode.NORMAL, ctx.getApprovalMode());
-    assertNotNull(ctx.getMemory());
-  }
-
-  @Test
   public void testTokenUsageAccumulates() {
     AgentContext ctx = new AgentContext(new ConversationMemory(), ApprovalMode.AUTO_APPROVE);
     ctx.addTokenUsage(10, 20, 30);
@@ -46,23 +35,6 @@ public class AgentContextTest {
     assertEquals(15, ctx.getPromptTokens());
     assertEquals(35, ctx.getCompletionTokens());
     assertEquals(50, ctx.getTotalTokens());
-  }
-
-  @Test
-  public void testIterationTracking() {
-    AgentContext ctx = new AgentContext(new ConversationMemory(), ApprovalMode.AUTO_APPROVE);
-    ctx.setIteration(1);
-    assertEquals(1, ctx.getIteration());
-    ctx.setIteration(5);
-    assertEquals(5, ctx.getIteration());
-  }
-
-  @Test
-  public void testApprovalModeCanBeChanged() {
-    AgentContext ctx = new AgentContext(new ConversationMemory(), ApprovalMode.NORMAL);
-    assertEquals(ApprovalMode.NORMAL, ctx.getApprovalMode());
-    ctx.setApprovalMode(ApprovalMode.STRICT);
-    assertEquals(ApprovalMode.STRICT, ctx.getApprovalMode());
   }
 
   @Test

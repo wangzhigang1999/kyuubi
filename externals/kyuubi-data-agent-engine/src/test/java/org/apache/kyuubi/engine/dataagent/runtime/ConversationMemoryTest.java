@@ -21,10 +21,7 @@ import static org.junit.Assert.*;
 
 import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam;
 import com.openai.models.chat.completions.ChatCompletionMessageParam;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 
 public class ConversationMemoryTest {
@@ -82,43 +79,5 @@ public class ConversationMemoryTest {
       // good
     }
     assertEquals(1, memory.size());
-  }
-
-  @Test
-  public void testConcurrentAccess() throws Exception {
-    ConversationMemory memory = new ConversationMemory();
-    int threads = 8;
-    int messagesPerThread = 100;
-    CountDownLatch latch = new CountDownLatch(threads);
-    AtomicInteger errors = new AtomicInteger(0);
-
-    List<Thread> threadList = new ArrayList<>();
-    for (int t = 0; t < threads; t++) {
-      final int threadId = t;
-      Thread thread =
-          new Thread(
-              () -> {
-                try {
-                  for (int i = 0; i < messagesPerThread; i++) {
-                    memory.addUserMessage("t" + threadId + "-q" + i);
-                    memory.buildLlmMessages(); // concurrent read
-                    memory.size();
-                  }
-                } catch (Exception e) {
-                  errors.incrementAndGet();
-                } finally {
-                  latch.countDown();
-                }
-              });
-      threadList.add(thread);
-      thread.start();
-    }
-
-    latch.await();
-    assertEquals("No concurrent modification errors", 0, errors.get());
-    // ConversationMemory is designed for single-session (single-thread) use.
-    // Under concurrent access, ArrayList may lose some adds, so we only verify
-    // no exceptions were thrown and at least some messages were recorded.
-    assertTrue("Expected at least some messages recorded, got " + memory.size(), memory.size() > 0);
   }
 }

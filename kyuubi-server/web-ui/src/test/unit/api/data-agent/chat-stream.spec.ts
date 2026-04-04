@@ -42,7 +42,10 @@ describe('chatStream SSE via fetchEventSource', () => {
     const promise = chatStream('handle', 'hi', (e) => events.push(e))
 
     // Simulate the library calling onmessage
-    capturedOptions.onmessage({ event: 'content_delta', data: '{"text":"hello"}' })
+    capturedOptions.onmessage({
+      event: 'content_delta',
+      data: '{"text":"hello"}'
+    })
     capturedOptions.onmessage({ event: 'done', data: '{}' })
 
     await promise
@@ -103,9 +106,18 @@ describe('chatStream SSE via fetchEventSource', () => {
     const events: SseEvent[] = []
     const promise = chatStream('handle', 'hi', (e) => events.push(e))
 
-    capturedOptions.onmessage({ event: 'content_delta', data: '{"text":"Let me check"}' })
-    capturedOptions.onmessage({ event: 'tool_call', data: '{"name":"sql","args":"SELECT 1"}' })
-    capturedOptions.onmessage({ event: 'tool_result', data: '{"name":"sql","output":"1"}' })
+    capturedOptions.onmessage({
+      event: 'content_delta',
+      data: '{"text":"Let me check"}'
+    })
+    capturedOptions.onmessage({
+      event: 'tool_call',
+      data: '{"name":"sql","args":"SELECT 1"}'
+    })
+    capturedOptions.onmessage({
+      event: 'tool_result',
+      data: '{"name":"sql","output":"1"}'
+    })
     capturedOptions.onmessage({ event: 'done', data: '{}' })
 
     await promise

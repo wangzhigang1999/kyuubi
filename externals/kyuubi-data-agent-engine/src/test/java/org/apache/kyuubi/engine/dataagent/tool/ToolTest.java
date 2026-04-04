@@ -29,7 +29,6 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import org.apache.kyuubi.engine.dataagent.tool.sql.SqlQueryArgs;
 import org.apache.kyuubi.engine.dataagent.tool.sql.SqlQueryTool;
 import org.junit.After;
@@ -61,23 +60,6 @@ public class ToolTest {
     SqlQueryArgs args = JSON.readValue("{\"sql\": \"SELECT 1\"}", SqlQueryArgs.class);
     assertEquals("SELECT 1", args.sql);
     assertEquals(Integer.valueOf(100), args.maxRows);
-  }
-
-  // --- ToolSchemaGenerator ---
-
-  @Test
-  public void testSchemaGeneratorProducesCorrectSchema() {
-    Map<String, Object> schema = ToolSchemaGenerator.generateSchema(SqlQueryArgs.class);
-    assertEquals("object", schema.get("type"));
-
-    @SuppressWarnings("unchecked")
-    Map<String, Object> props = (Map<String, Object>) schema.get("properties");
-    assertTrue(props.containsKey("sql"));
-    assertTrue(props.containsKey("maxRows"));
-
-    @SuppressWarnings("unchecked")
-    List<String> required = (List<String>) schema.get("required");
-    assertTrue(required.contains("sql"));
   }
 
   // --- AgentTool metadata ---
@@ -130,54 +112,6 @@ public class ToolTest {
     assertTrue(result.startsWith("Error: unknown tool"));
   }
 
-  // --- Tool execution with real SQLite ---
-
-  @Test
-  public void testSqlQueryToolExecutesSelect() {
-    SQLiteDataSource ds = createDataSource();
-    setupTestTable(ds);
-    SqlQueryTool tool = new SqlQueryTool(ds);
-
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "SELECT name, age FROM users ORDER BY age";
-    args.maxRows = 10;
-
-    String result = tool.execute(args);
-    assertTrue(result.contains("name"));
-    assertTrue(result.contains("Alice"));
-    assertTrue(result.contains("Bob"));
-    assertTrue(result.contains("[3 row(s) returned]"));
-  }
-
-  @Test
-  public void testSqlQueryToolExecutesShowAndDescribe() {
-    SQLiteDataSource ds = createDataSource();
-    setupTestTable(ds);
-    SqlQueryTool tool = new SqlQueryTool(ds);
-
-    // SQLite schema exploration
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "SELECT name FROM sqlite_master WHERE type='table'";
-    String result = tool.execute(args);
-    assertTrue(result.contains("users"));
-
-    // PRAGMA table_info
-    args.sql = "PRAGMA table_info(users)";
-    result = tool.execute(args);
-    assertTrue(result.contains("name"));
-    assertTrue(result.contains("age"));
-  }
-
-  @Test
-  public void testSqlQueryToolStripsMarkdownCodeBlocks() {
-    SQLiteDataSource ds = createDataSource();
-    setupTestTable(ds);
-    SqlQueryTool tool = new SqlQueryTool(ds);
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "```sql\nSELECT COUNT(*) FROM users\n```";
-    assertTrue(tool.execute(args).contains("3"));
-  }
-
   // --- DataSource isolation ---
 
   @Test
@@ -202,36 +136,6 @@ public class ToolTest {
     assertTrue(reg1.executeTool("sql_query", "{\"sql\": \"SELECT * FROM t2\"}").contains("Error:"));
     // ds2 does not have t1
     assertTrue(reg2.executeTool("sql_query", "{\"sql\": \"SELECT * FROM t1\"}").contains("Error:"));
-  }
-
-  // --- End-to-end roundtrip ---
-
-  @Test
-  public void testEndToEndRegisterSchemaDeserializeExecute() {
-    SQLiteDataSource ds = createDataSource();
-    setupTestTable(ds);
-    ToolRegistry registry = new ToolRegistry();
-    registry.register(new SqlQueryTool(ds));
-
-    // Schema generation works
-    ChatCompletionCreateParams.Builder builder =
-        ChatCompletionCreateParams.builder().model(ChatModel.GPT_4O).addUserMessage("test");
-    registry.addToolsTo(builder);
-    assertTrue(builder.build().tools().isPresent());
-
-    // Schema exploration via SQL
-    String schemaResult =
-        registry.executeTool(
-            "sql_query", "{\"sql\": \"SELECT name FROM sqlite_master WHERE type='table'\"}");
-    assertTrue(schemaResult.contains("users"));
-
-    // Data query
-    String queryResult =
-        registry.executeTool(
-            "sql_query", "{\"sql\": \"SELECT name FROM users WHERE age > 25\", \"maxRows\": 10}");
-    assertTrue(queryResult.contains("Bob"));
-    assertTrue(queryResult.contains("Charlie"));
-    assertFalse(queryResult.contains("Alice"));
   }
 
   // --- Helpers ---

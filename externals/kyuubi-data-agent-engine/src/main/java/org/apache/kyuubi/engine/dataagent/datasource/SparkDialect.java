@@ -34,5 +34,4 @@ public final class SparkDialect implements JdbcDialect {
     String escaped = identifier.replace("`", "``");
     return "`" + escaped + "`";
   }
-
 }

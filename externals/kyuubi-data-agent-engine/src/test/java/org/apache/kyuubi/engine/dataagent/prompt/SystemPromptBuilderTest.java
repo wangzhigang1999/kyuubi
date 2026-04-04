@@ -97,9 +97,9 @@ public class SystemPromptBuilderTest {
   }
 
   @Test
-  public void testJdbcUrlUnknownIgnored() {
-    String plain = SystemPromptBuilder.create().build();
-    assertEquals(plain, SystemPromptBuilder.create().jdbcUrl("jdbc:derby://localhost/db").build());
+  public void testJdbcUrlUnknownFallsBackToMysql() {
+    String prompt = SystemPromptBuilder.create().jdbcUrl("jdbc:derby://localhost/db").build();
+    assertTrue(prompt.contains("MySQL"));
   }
 
   @Test

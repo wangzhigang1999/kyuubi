@@ -34,5 +34,4 @@ public final class SqliteDialect implements JdbcDialect {
     String escaped = identifier.replace("\"", "\"\"");
     return "\"" + escaped + "\"";
   }
-
 }

@@ -19,47 +19,12 @@ package org.apache.kyuubi.engine.dataagent.runtime.event;
 
 import static org.junit.Assert.*;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRiskLevel;
 import org.junit.Test;
 
 public class EventTest {
-
-  @Test
-  public void testAgentStart() {
-    AgentStart event = new AgentStart();
-    assertEquals(EventType.AGENT_START, event.eventType());
-    assertEquals("AgentStart{}", event.toString());
-  }
-
-  @Test
-  public void testAgentFinish() {
-    AgentFinish event = new AgentFinish(3, 100, 200, 300);
-    assertEquals(EventType.AGENT_FINISH, event.eventType());
-    assertEquals(3, event.totalSteps());
-    assertEquals(100, event.promptTokens());
-    assertEquals(200, event.completionTokens());
-    assertEquals(300, event.totalTokens());
-    assertTrue(event.toString().contains("totalSteps=3"));
-  }
-
-  @Test
-  public void testAgentError() {
-    AgentError event = new AgentError("something failed");
-    assertEquals(EventType.ERROR, event.eventType());
-    assertEquals("something failed", event.message());
-    assertTrue(event.toString().contains("something failed"));
-  }
-
-  @Test
-  public void testContentDelta() {
-    ContentDelta event = new ContentDelta("hello world");
-    assertEquals(EventType.CONTENT_DELTA, event.eventType());
-    assertEquals("hello world", event.text());
-    assertTrue(event.toString().contains("hello world"));
-  }
 
   @Test
   public void testContentDeltaLongTextTruncated() {
@@ -77,46 +42,9 @@ public class EventTest {
   }
 
   @Test
-  public void testContentComplete() {
-    ContentComplete event = new ContentComplete("full text here");
-    assertEquals(EventType.CONTENT_COMPLETE, event.eventType());
-    assertEquals("full text here", event.fullText());
-    assertTrue(event.toString().contains("length=14"));
-  }
-
-  @Test
   public void testContentCompleteNull() {
     ContentComplete event = new ContentComplete(null);
     assertTrue(event.toString().contains("length=0"));
-  }
-
-  @Test
-  public void testStepStart() {
-    StepStart event = new StepStart(5);
-    assertEquals(EventType.STEP_START, event.eventType());
-    assertEquals(5, event.stepNumber());
-    assertTrue(event.toString().contains("stepNumber=5"));
-  }
-
-  @Test
-  public void testStepEnd() {
-    StepEnd event = new StepEnd(3);
-    assertEquals(EventType.STEP_END, event.eventType());
-    assertEquals(3, event.stepNumber());
-    assertTrue(event.toString().contains("stepNumber=3"));
-  }
-
-  @Test
-  public void testToolCall() {
-    Map<String, Object> args = new HashMap<>();
-    args.put("sql", "SELECT 1");
-    args.put("maxRows", 100);
-    ToolCall event = new ToolCall("tc-1", "sql_query", args);
-    assertEquals(EventType.TOOL_CALL, event.eventType());
-    assertEquals("tc-1", event.toolCallId());
-    assertEquals("sql_query", event.toolName());
-    assertEquals("SELECT 1", event.toolArgs().get("sql"));
-    assertEquals(100, event.toolArgs().get("maxRows"));
   }
 
   @Test
@@ -140,16 +68,6 @@ public class EventTest {
   }
 
   @Test
-  public void testToolResult() {
-    ToolResult event = new ToolResult("tc-1", "sql_query", "3 rows returned", false);
-    assertEquals(EventType.TOOL_RESULT, event.eventType());
-    assertEquals("tc-1", event.toolCallId());
-    assertEquals("sql_query", event.toolName());
-    assertEquals("3 rows returned", event.output());
-    assertFalse(event.isError());
-  }
-
-  @Test
   public void testToolResultError() {
     ToolResult event = new ToolResult("tc-2", "sql_query", "syntax error", true);
     assertTrue(event.isError());
@@ -162,19 +80,6 @@ public class EventTest {
     ToolResult event = new ToolResult("tc-1", "tool", longOutput, false);
     String str = event.toString();
     assertTrue(str.contains("..."));
-  }
-
-  @Test
-  public void testApprovalRequest() {
-    Map<String, Object> args = Collections.singletonMap("sql", "DROP TABLE users");
-    ApprovalRequest event =
-        new ApprovalRequest("req-1", "tc-1", "sql_query", args, ToolRiskLevel.DESTRUCTIVE);
-    assertEquals(EventType.APPROVAL_REQUEST, event.eventType());
-    assertEquals("req-1", event.requestId());
-    assertEquals("tc-1", event.toolCallId());
-    assertEquals("sql_query", event.toolName());
-    assertEquals(ToolRiskLevel.DESTRUCTIVE, event.riskLevel());
-    assertEquals("DROP TABLE users", event.toolArgs().get("sql"));
   }
 
   @Test

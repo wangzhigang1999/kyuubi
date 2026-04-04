@@ -100,8 +100,7 @@ public class OpenAiProvider implements DataAgentProvider {
         String jdbcUrl = jdbcUrlOpt.get();
         LOG.info(
             "Data Agent JDBC URL configured ({})", jdbcUrl.replaceAll("//.*@", "//<redacted>@"));
-        scala.Option<String> userOpt =
-            conf.getOption(KyuubiReservedKeys.KYUUBI_SESSION_USER_KEY());
+        scala.Option<String> userOpt = conf.getOption(KyuubiReservedKeys.KYUUBI_SESSION_USER_KEY());
         String sessionUser = userOpt.isDefined() ? userOpt.get() : null;
         ds = DataSourceFactory.create(jdbcUrl, sessionUser);
         toolRegistry.register(new SqlQueryTool(ds, queryTimeoutSeconds));

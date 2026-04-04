@@ -87,12 +87,13 @@ public class ToolSchemaGeneratorTest {
   }
 
   @Test
-  public void testAllPrimitiveTypeMappings() {
+  public void testAllPrimitiveTypeMappingsAndAnnotations() {
     Map<String, Object> schema = ToolSchemaGenerator.generateSchema(AllTypesArgs.class);
 
     @SuppressWarnings("unchecked")
     Map<String, Object> props = (Map<String, Object>) schema.get("properties");
 
+    // Type mappings
     assertEquals("string", getType(props, "stringField"));
     assertEquals("integer", getType(props, "intField"));
     assertEquals("integer", getType(props, "integerField"));
@@ -101,24 +102,13 @@ public class ToolSchemaGeneratorTest {
     assertEquals("number", getType(props, "floatField"));
     assertEquals("boolean", getType(props, "booleanField"));
     assertEquals("boolean", getType(props, "booleanWrapperField"));
-  }
 
-  @Test
-  public void testDescriptionsPreserved() {
-    Map<String, Object> schema = ToolSchemaGenerator.generateSchema(AllTypesArgs.class);
-
-    @SuppressWarnings("unchecked")
-    Map<String, Object> props = (Map<String, Object>) schema.get("properties");
-
+    // Descriptions preserved
     assertEquals("a string field", getDescription(props, "stringField"));
     assertEquals("an int field", getDescription(props, "intField"));
     assertEquals("a boolean field", getDescription(props, "booleanField"));
-  }
 
-  @Test
-  public void testRequiredFieldsRespected() {
-    Map<String, Object> schema = ToolSchemaGenerator.generateSchema(AllTypesArgs.class);
-
+    // Required fields
     @SuppressWarnings("unchecked")
     List<String> required = (List<String>) schema.get("required");
     assertNotNull(required);

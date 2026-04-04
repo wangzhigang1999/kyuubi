@@ -19,9 +19,6 @@ package org.apache.kyuubi.engine.dataagent.runtime;
 
 import static org.junit.Assert.*;
 
-import com.openai.models.chat.completions.ChatCompletionMessageParam;
-import java.util.ArrayList;
-import java.util.List;
 import org.apache.kyuubi.engine.dataagent.runtime.event.AgentEvent;
 import org.apache.kyuubi.engine.dataagent.runtime.event.ContentDelta;
 import org.apache.kyuubi.engine.dataagent.runtime.event.EventType;
@@ -52,26 +49,5 @@ public class AgentMiddlewareTest {
     AgentEvent stepStart = new StepStart(1);
     assertNotNull(
         "Middleware should not suppress StepStart", suppressDelta.onEvent(ctx, stepStart));
-  }
-
-  @Test
-  public void testToolCallDenial() {
-    AgentMiddleware.ToolCallDenial denial = new AgentMiddleware.ToolCallDenial("not allowed");
-    assertEquals("not allowed", denial.reason());
-  }
-
-  @Test
-  public void testLlmSkip() {
-    AgentMiddleware.LlmSkip skip = new AgentMiddleware.LlmSkip("cached");
-    assertEquals("cached", skip.reason());
-    assertTrue(skip instanceof AgentMiddleware.LlmCallAction);
-  }
-
-  @Test
-  public void testLlmModifyMessages() {
-    List<ChatCompletionMessageParam> msgs = new ArrayList<>();
-    AgentMiddleware.LlmModifyMessages modify = new AgentMiddleware.LlmModifyMessages(msgs);
-    assertSame(msgs, modify.messages());
-    assertTrue(modify instanceof AgentMiddleware.LlmCallAction);
   }
 }

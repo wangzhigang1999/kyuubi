@@ -57,7 +57,9 @@
             <template #prefix>
               <el-icon :size="14"><Lock /></el-icon>
             </template>
-            <el-option :label="$t('data_agent.auto_approve')" value="AUTO_APPROVE" />
+            <el-option
+              :label="$t('data_agent.auto_approve')"
+              value="AUTO_APPROVE" />
             <el-option :label="$t('data_agent.normal')" value="NORMAL" />
             <el-option :label="$t('data_agent.strict')" value="STRICT" />
           </el-select>
@@ -160,7 +162,11 @@
       <TransitionGroup name="msg-fade">
         <ChatMessage
           v-for="msg in messages"
-          v-show="msg.role === 'user' || (msg.blocks && msg.blocks.length > 0) || (streaming && msg.id === messages[messages.length - 1]?.id)"
+          v-show="
+            msg.role === 'user' ||
+            (msg.blocks && msg.blocks.length > 0) ||
+            (streaming && msg.id === messages[messages.length - 1]?.id)
+          "
           :key="msg.id"
           :role="msg.role"
           :text="msg.text"
@@ -227,7 +233,13 @@
   import ChatMessage from './components/ChatMessage.vue'
   import type { ChatBlock } from './components/ChatMessage.vue'
   import InputBar from './components/InputBar.vue'
-  import { openSession, closeSession, getSession, chatStream, approveToolCall } from '@/api/data-agent'
+  import {
+    openSession,
+    closeSession,
+    getSession,
+    chatStream,
+    approveToolCall
+  } from '@/api/data-agent'
 
   const { t } = useI18n()
 
@@ -239,9 +251,24 @@
   }
 
   const jdbcTemplates = [
-    { label: 'Spark / Hive (Thrift)', value: 'jdbc:hive2://localhost:10009/default;user=username;password=password', isHistory: false },
-    { label: 'Trino', value: 'jdbc:trino://localhost:8080/catalog/schema?user=username&password=password', isHistory: false },
-    { label: 'MySQL', value: 'jdbc:mysql://localhost:3306/mydb?user=username&password=password&useSSL=false', isHistory: false }
+    {
+      label: 'Spark / Hive (Thrift)',
+      value:
+        'jdbc:hive2://localhost:10009/default;user=username;password=password',
+      isHistory: false
+    },
+    {
+      label: 'Trino',
+      value:
+        'jdbc:trino://localhost:8080/catalog/schema?user=username&password=password',
+      isHistory: false
+    },
+    {
+      label: 'MySQL',
+      value:
+        'jdbc:mysql://localhost:3306/mydb?user=username&password=password&useSSL=false',
+      isHistory: false
+    }
   ]
 
   const JDBC_HISTORY_KEY = 'data-agent-jdbc-history'
@@ -273,18 +300,31 @@
     isHistory: boolean
   }
 
-  function queryJdbcSuggestions(query: string, cb: (results: JdbcSuggestion[]) => void) {
+  function queryJdbcSuggestions(
+    query: string,
+    cb: (results: JdbcSuggestion[]) => void
+  ) {
     const history = loadJdbcHistory()
     const templateValues = new Set(jdbcTemplates.map((t) => t.value))
     const historyItems: JdbcSuggestion[] = history
       .filter((u) => !templateValues.has(u))
-      .map((u) => ({ label: t('data_agent.history'), value: u, isHistory: true }))
+      .map((u) => ({
+        label: t('data_agent.history'),
+        value: u,
+        isHistory: true
+      }))
     const all = [...historyItems, ...jdbcTemplates]
     if (!query) {
       cb(all)
     } else {
       const q = query.toLowerCase()
-      cb(all.filter((item) => item.value.toLowerCase().includes(q) || item.label.toLowerCase().includes(q)))
+      cb(
+        all.filter(
+          (item) =>
+            item.value.toLowerCase().includes(q) ||
+            item.label.toLowerCase().includes(q)
+        )
+      )
     }
   }
 
@@ -399,7 +439,9 @@
       saveJdbcToHistory(jdbcUrl.value.trim())
       return true
     } catch (e: any) {
-      ElMessage.error(t('data_agent.session_start_failed', { message: e.message }))
+      ElMessage.error(
+        t('data_agent.session_start_failed', { message: e.message })
+      )
       return false
     } finally {
       initializing.value = false
@@ -412,7 +454,7 @@
       try {
         await closeSession(sessionHandle.value)
       } catch (e: any) {
-        console.warn('Failed to close session:', e.message)
+        console.warn('Failed to close session:', e.message) // eslint-disable-line no-console
         ElMessage.warning(t('data_agent.session_close_failed'))
       }
     }
@@ -470,7 +512,7 @@
     try {
       parsed = JSON.parse(event.data)
     } catch {
-      console.warn('Invalid SSE event data:', event.data)
+      console.warn('Invalid SSE event data:', event.data) // eslint-disable-line no-console
       errorMessage.value = t('data_agent.malformed_response')
       return
     }
@@ -492,8 +534,7 @@
         if (!toolCallId || !parsed.name) break
         // Skip if an approval_request block already exists for this tool call
         const hasApproval = blocks.some(
-          (b) =>
-            b.type === 'approval_request' && b.toolCallId === toolCallId
+          (b) => b.type === 'approval_request' && b.toolCallId === toolCallId
         )
         if (!hasApproval) {
           blocks.push({
@@ -547,7 +588,10 @@
     for (const msg of messages.value) {
       if (!msg.blocks) continue
       for (const block of msg.blocks) {
-        if (block.type === 'approval_request' && block.requestId === requestId) {
+        if (
+          block.type === 'approval_request' &&
+          block.requestId === requestId
+        ) {
           if (block.approvalStatus !== 'pending') {
             approvingRequestId.value = ''
             return // prevent double-click
@@ -559,12 +603,17 @@
     try {
       await approveToolCall(sessionHandle.value, requestId, approved)
     } catch (e: any) {
-      errorMessage.value = t('data_agent.approval_failed', { message: e.message })
+      errorMessage.value = t('data_agent.approval_failed', {
+        message: e.message
+      })
       // Revert status so user can retry
       for (const msg of messages.value) {
         if (!msg.blocks) continue
         for (const block of msg.blocks) {
-          if (block.type === 'approval_request' && block.requestId === requestId) {
+          if (
+            block.type === 'approval_request' &&
+            block.requestId === requestId
+          ) {
             block.approvalStatus = 'pending'
           }
         }
@@ -586,7 +635,8 @@
       const el = messagesContainer.value
       if (!el) return
       // Only auto-scroll if user is near the bottom (within 150px)
-      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      const distanceFromBottom =
+        el.scrollHeight - el.scrollTop - el.clientHeight
       if (distanceFromBottom < 150) {
         el.scrollTop = el.scrollHeight
       }
@@ -599,10 +649,7 @@
     saveTimer = setTimeout(saveState, 500)
   }
 
-  watch(
-    [sessionHandle, jdbcUrl, approvalMode],
-    () => debouncedSave()
-  )
+  watch([sessionHandle, jdbcUrl, approvalMode], () => debouncedSave())
 
   onMounted(() => {
     restoreState()

@@ -43,7 +43,8 @@
       </div>
     </div>
     <div class="input-hint">
-      <kbd>Enter</kbd> {{ $t('data_agent.input_hint_send') }} &middot; <kbd>Shift+Enter</kbd> {{ $t('data_agent.input_hint_newline') }}
+      <kbd>Enter</kbd> {{ $t('data_agent.input_hint_send') }} &middot;
+      <kbd>Shift+Enter</kbd> {{ $t('data_agent.input_hint_newline') }}
     </div>
   </div>
 </template>

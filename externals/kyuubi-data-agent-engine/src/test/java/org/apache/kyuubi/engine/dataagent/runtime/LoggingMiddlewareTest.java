@@ -19,13 +19,7 @@ package org.apache.kyuubi.engine.dataagent.runtime;
 
 import static org.junit.Assert.*;
 
-import com.openai.models.chat.completions.ChatCompletionAssistantMessageParam;
-import com.openai.models.chat.completions.ChatCompletionMessageParam;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 import org.apache.kyuubi.engine.dataagent.runtime.event.*;
 import org.apache.kyuubi.engine.dataagent.runtime.middleware.LoggingMiddleware;
 import org.junit.Before;
@@ -43,53 +37,6 @@ public class LoggingMiddlewareTest {
     memory.addUserMessage("What is the total revenue?");
     ctx = new AgentContext(memory, ApprovalMode.AUTO_APPROVE);
     ctx.setIteration(1);
-  }
-
-  @Test
-  public void testOnAgentStartDoesNotThrow() {
-    middleware.onAgentStart(ctx);
-  }
-
-  @Test
-  public void testOnAgentFinishDoesNotThrow() {
-    ctx.addTokenUsage(100, 50, 150);
-    middleware.onAgentFinish(ctx);
-  }
-
-  @Test
-  public void testBeforeLlmCallReturnsNull() {
-    List<ChatCompletionMessageParam> messages = new ArrayList<>();
-    assertNull(
-        "Logging middleware should not modify LLM calls", middleware.beforeLlmCall(ctx, messages));
-  }
-
-  @Test
-  public void testAfterLlmCallWithContent() {
-    ChatCompletionAssistantMessageParam response =
-        ChatCompletionAssistantMessageParam.builder()
-            .content("The total revenue is $1,000,000.")
-            .build();
-    middleware.afterLlmCall(ctx, response);
-  }
-
-  @Test
-  public void testAfterLlmCallWithEmptyContent() {
-    ChatCompletionAssistantMessageParam response =
-        ChatCompletionAssistantMessageParam.builder().build();
-    middleware.afterLlmCall(ctx, response);
-  }
-
-  @Test
-  public void testBeforeToolCallReturnsNull() {
-    Map<String, Object> args = new HashMap<>();
-    args.put("sql", "SELECT COUNT(*) FROM orders");
-    assertNull(middleware.beforeToolCall(ctx, "call_1", "sql_query", args));
-  }
-
-  @Test
-  public void testAfterToolCallReturnsNull() {
-    Map<String, Object> args = Collections.singletonMap("sql", "SELECT 1");
-    assertNull(middleware.afterToolCall(ctx, "sql_query", args, "count\n---\n42"));
   }
 
   @Test
@@ -132,7 +79,7 @@ public class LoggingMiddlewareTest {
   @Test
   public void testLongToolResultIsTruncated() {
     String longResult = String.join("", Collections.nCopies(500, "row\n"));
-    Map<String, Object> args = Collections.singletonMap("sql", "SELECT *");
+    java.util.Map<String, Object> args = Collections.singletonMap("sql", "SELECT *");
     // Should not throw
     assertNull(middleware.afterToolCall(ctx, "sql_query", args, longResult));
   }

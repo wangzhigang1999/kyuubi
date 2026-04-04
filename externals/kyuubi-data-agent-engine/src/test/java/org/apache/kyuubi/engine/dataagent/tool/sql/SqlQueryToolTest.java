@@ -30,8 +30,8 @@ import org.junit.Test;
 import org.sqlite.SQLiteDataSource;
 
 /**
- * Tests for SqlQueryTool focusing on maxRows enforcement and markdown stripping. Uses real SQLite —
- * no mocks.
+ * Tests for SqlQueryTool focusing on maxRows enforcement, markdown stripping, write operations, and
+ * edge cases. Uses real SQLite — no mocks.
  */
 public class SqlQueryToolTest {
 
@@ -81,21 +81,16 @@ public class SqlQueryToolTest {
   }
 
   @Test
-  public void testMaxRowsZeroDefaultsTo100() {
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "SELECT id FROM large_table";
-    args.maxRows = 0;
-    String result = tool.execute(args);
-    assertTrue(result.contains("[100 row(s) returned]"));
-  }
-
-  @Test
-  public void testMaxRowsNegativeDefaultsTo100() {
-    SqlQueryArgs args = new SqlQueryArgs();
-    args.sql = "SELECT id FROM large_table";
-    args.maxRows = -1;
-    String result = tool.execute(args);
-    assertTrue(result.contains("[100 row(s) returned]"));
+  public void testMaxRowsEdgeCasesDefaultTo100() {
+    for (int invalid : new int[] {0, -1}) {
+      SqlQueryArgs args = new SqlQueryArgs();
+      args.sql = "SELECT id FROM large_table";
+      args.maxRows = invalid;
+      String result = tool.execute(args);
+      assertTrue(
+          "maxRows=" + invalid + " should default to 100",
+          result.contains("[100 row(s) returned]"));
+    }
   }
 
   // --- Markdown stripping ---
@@ -118,6 +113,22 @@ public class SqlQueryToolTest {
   }
 
   @Test
+  public void testAllowsUpdate() {
+    SqlQueryArgs args = new SqlQueryArgs();
+    args.sql = "UPDATE large_table SET value = 'updated' WHERE id = 1";
+    String result = tool.execute(args);
+    assertTrue(result.contains("1 row(s) affected"));
+  }
+
+  @Test
+  public void testAllowsDelete() {
+    SqlQueryArgs args = new SqlQueryArgs();
+    args.sql = "DELETE FROM large_table WHERE id = 1";
+    String result = tool.execute(args);
+    assertTrue(result.contains("1 row(s) affected"));
+  }
+
+  @Test
   public void testAllowsCreateTable() {
     SqlQueryArgs args = new SqlQueryArgs();
     args.sql = "CREATE TABLE test_write (id INTEGER PRIMARY KEY, value TEXT)";
@@ -126,11 +137,41 @@ public class SqlQueryToolTest {
   }
 
   @Test
+  public void testAllowsWithCTE() {
+    SqlQueryArgs args = new SqlQueryArgs();
+    args.sql = "WITH cte AS (SELECT id, value FROM large_table LIMIT 5) SELECT * FROM cte";
+    String result = tool.execute(args);
+    assertTrue("CTE query should work", result.contains("row(s)"));
+  }
+
+  // --- Schema exploration ---
+
+  @Test
   public void testExecutesShowStyleQueries() {
     SqlQueryArgs args = new SqlQueryArgs();
     args.sql = "SELECT name FROM sqlite_master WHERE type='table'";
     String result = tool.execute(args);
     assertTrue(result.contains("large_table"));
+  }
+
+  // --- Edge cases ---
+
+  @Test
+  public void testRejectsEmptyAndNullSql() {
+    SqlQueryArgs emptyArgs = new SqlQueryArgs();
+    emptyArgs.sql = "";
+    assertTrue(tool.execute(emptyArgs).startsWith("Error:"));
+
+    SqlQueryArgs nullArgs = new SqlQueryArgs();
+    nullArgs.sql = null;
+    assertTrue(tool.execute(nullArgs).startsWith("Error:"));
+  }
+
+  @Test
+  public void testInvalidSqlReturnsError() {
+    SqlQueryArgs args = new SqlQueryArgs();
+    args.sql = "SELECT * FROM nonexistent_table";
+    assertTrue(tool.execute(args).startsWith("Error:"));
   }
 
   // --- Query timeout ---
@@ -223,6 +264,117 @@ public class SqlQueryToolTest {
     String result = timeoutTool.execute(args);
     assertTrue("Expected error on timeout", result.startsWith("Error:"));
     assertTrue("Expected timeout message", result.contains("timed out"));
+  }
+
+  // --- Output formatting ---
+
+  @Test
+  public void testNullValuesRenderedAsNULL() {
+    try (Connection conn = ds.getConnection();
+        Statement stmt = conn.createStatement()) {
+      stmt.execute("CREATE TABLE nullable_test (id INTEGER, name TEXT)");
+      stmt.execute("INSERT INTO nullable_test VALUES (1, NULL)");
+      stmt.execute("INSERT INTO nullable_test VALUES (NULL, 'Alice')");
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+    SqlQueryArgs args = new SqlQueryArgs();
+    args.sql = "SELECT id, name FROM nullable_test ORDER BY ROWID";
+    String result = tool.execute(args);
+    // First row: id=1, name=NULL; Second row: id=NULL, name=Alice
+    assertTrue("NULL values should render as NULL", result.contains("NULL"));
+    assertTrue(result.contains("Alice"));
+  }
+
+  @Test
+  public void testPipeCharacterEscapedInOutput() {
+    try (Connection conn = ds.getConnection();
+        Statement stmt = conn.createStatement()) {
+      stmt.execute("CREATE TABLE pipe_test (val TEXT)");
+      stmt.execute("INSERT INTO pipe_test VALUES ('a|b|c')");
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+    SqlQueryArgs args = new SqlQueryArgs();
+    args.sql = "SELECT val FROM pipe_test";
+    String result = tool.execute(args);
+    assertTrue("Pipe should be escaped for markdown table", result.contains("a\\|b\\|c"));
+    assertFalse("Unescaped pipe should not appear in data row", result.contains("| a|b|c |"));
+  }
+
+  @Test
+  public void testLongCellValueTruncated() {
+    String longValue = new String(new char[600]).replace('\0', 'x');
+    try (Connection conn = ds.getConnection();
+        Statement stmt = conn.createStatement()) {
+      stmt.execute("CREATE TABLE cell_test (val TEXT)");
+      stmt.execute("INSERT INTO cell_test VALUES ('" + longValue + "')");
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+    SqlQueryArgs args = new SqlQueryArgs();
+    args.sql = "SELECT val FROM cell_test";
+    String result = tool.execute(args);
+    assertTrue("Long cell should be truncated with ...", result.contains("..."));
+    // The full 600-char value should NOT appear
+    assertFalse(result.contains(longValue));
+  }
+
+  @Test
+  public void testOutputTruncatedAtMaxChars() {
+    // Insert enough rows to produce > 64KB of output
+    // Each row: "| <id> | <100-char-value> |\n" ~ 110 chars, need ~600 rows
+    try (Connection conn = ds.getConnection();
+        Statement stmt = conn.createStatement()) {
+      stmt.execute("CREATE TABLE big_output (id INTEGER, val TEXT)");
+      String padded = new String(new char[100]).replace('\0', 'A');
+      StringBuilder sb = new StringBuilder();
+      for (int i = 1; i <= 800; i++) {
+        if (sb.length() > 0) sb.append(",");
+        sb.append("(").append(i).append(", '").append(padded).append("')");
+        if (i % 200 == 0) {
+          stmt.execute("INSERT INTO big_output VALUES " + sb);
+          sb.setLength(0);
+        }
+      }
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+    SqlQueryArgs args = new SqlQueryArgs();
+    args.sql = "SELECT * FROM big_output";
+    args.maxRows = 800;
+    String result = tool.execute(args);
+    assertTrue(
+        "Output should be truncated at 65536 chars",
+        result.contains("[Output truncated at 65536 characters]"));
+    assertTrue("Truncated output should not exceed limit + message", result.length() < 65536 + 100);
+  }
+
+  // --- Error formatting ---
+
+  @Test
+  public void testExtractRootCauseFromNestedExceptions() {
+    // Trigger a real nested exception via invalid SQL
+    SqlQueryArgs args = new SqlQueryArgs();
+    args.sql = "SELECT * FROM this_table_does_not_exist_at_all";
+    String result = tool.execute(args);
+    assertTrue(result.startsWith("Error:"));
+    // Should contain a useful message, not a generic class name
+    assertTrue(
+        "Error should mention the table name", result.contains("this_table_does_not_exist_at_all"));
+  }
+
+  @Test
+  public void testErrorMessageTruncatesMultilineStackTrace() {
+    // Trigger a syntax error — SQLite returns single-line errors, but we can verify
+    // the error message doesn't contain excessive output
+    SqlQueryArgs args = new SqlQueryArgs();
+    args.sql = "SELEC INVALID SYNTAX HERE !!!";
+    String result = tool.execute(args);
+    assertTrue(result.startsWith("Error:"));
+    // Error should be a single-line summary, not a full stack trace
+    long newlines = result.chars().filter(c -> c == '\n').count();
+    assertTrue("Error should be concise (<=2 newlines), got " + newlines, newlines <= 2);
   }
 
   // --- Helpers ---

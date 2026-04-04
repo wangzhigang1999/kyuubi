@@ -59,9 +59,9 @@ public class MockLlmProvider implements DataAgentProvider {
           "(SELECT\\b.+|SHOW\\b.+|DESCRIBE\\b.+)", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
   /**
-   * Simple natural-language-to-SQL mappings so tests can use human-readable questions instead of raw
-   * SQL. Checked before the regex pattern — if a question matches a key (case-insensitive prefix),
-   * the mapped SQL is executed.
+   * Simple natural-language-to-SQL mappings so tests can use human-readable questions instead of
+   * raw SQL. Checked before the regex pattern — if a question matches a key (case-insensitive
+   * prefix), the mapped SQL is executed.
    */
   private static final Map<String, String> NL_TO_SQL = new java.util.LinkedHashMap<>();
 
@@ -72,8 +72,7 @@ public class MockLlmProvider implements DataAgentProvider {
     NL_TO_SQL.put(
         "how many employees in each department",
         "SELECT department, COUNT(*) as cnt FROM employees GROUP BY department");
-    NL_TO_SQL.put(
-        "count the total number of employees", "SELECT COUNT(*) FROM employees");
+    NL_TO_SQL.put("count the total number of employees", "SELECT COUNT(*) FROM employees");
   }
 
   private final ConcurrentHashMap<String, Object> sessions = new ConcurrentHashMap<>();

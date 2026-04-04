@@ -95,7 +95,8 @@ public class ReactAgent implements Closeable {
     this.middlewares = middlewares != null ? middlewares : Collections.emptyList();
     this.maxIterations = maxIterations;
     this.systemPrompt = systemPrompt;
-    this.toolTimeoutSeconds = toolTimeoutSeconds > 0 ? toolTimeoutSeconds : DEFAULT_TOOL_TIMEOUT_SECONDS;
+    this.toolTimeoutSeconds =
+        toolTimeoutSeconds > 0 ? toolTimeoutSeconds : DEFAULT_TOOL_TIMEOUT_SECONDS;
     // Plain Java thread pool — intentionally not using Kyuubi's Scala ThreadUtils because this
     // module is pure Java to keep the dependency footprint minimal.
     AtomicInteger threadCount = new AtomicInteger();
@@ -627,7 +628,12 @@ public class ReactAgent implements Closeable {
       if (modelName == null) throw new IllegalStateException("modelName is required");
       if (toolRegistry == null) throw new IllegalStateException("toolRegistry is required");
       return new ReactAgent(
-          client, modelName, toolRegistry, middlewares, maxIterations, systemPrompt,
+          client,
+          modelName,
+          toolRegistry,
+          middlewares,
+          maxIterations,
+          systemPrompt,
           toolTimeoutSeconds);
     }
   }
