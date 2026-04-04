@@ -58,6 +58,24 @@ public class MockLlmProvider implements DataAgentProvider {
       Pattern.compile(
           "(SELECT\\b.+|SHOW\\b.+|DESCRIBE\\b.+)", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
+  /**
+   * Simple natural-language-to-SQL mappings so tests can use human-readable questions instead of raw
+   * SQL. Checked before the regex pattern — if a question matches a key (case-insensitive prefix),
+   * the mapped SQL is executed.
+   */
+  private static final Map<String, String> NL_TO_SQL = new java.util.LinkedHashMap<>();
+
+  static {
+    NL_TO_SQL.put(
+        "list all employee names and departments",
+        "SELECT name, department FROM employees ORDER BY id");
+    NL_TO_SQL.put(
+        "how many employees in each department",
+        "SELECT department, COUNT(*) as cnt FROM employees GROUP BY department");
+    NL_TO_SQL.put(
+        "count the total number of employees", "SELECT COUNT(*) FROM employees");
+  }
+
   private final ConcurrentHashMap<String, Object> sessions = new ConcurrentHashMap<>();
   private final ToolRegistry toolRegistry;
   private final DataSource dataSource;
@@ -82,9 +100,9 @@ public class MockLlmProvider implements DataAgentProvider {
     String question = request.getQuestion();
     onEvent.accept(new AgentStart());
 
-    Matcher matcher = SQL_PATTERN.matcher(question);
-    if (matcher.find()) {
-      String sql = matcher.group(1).trim();
+    // First check natural-language mappings, then fall back to SQL pattern extraction
+    String sql = resolveToSql(question);
+    if (sql != null) {
       runWithToolCall(sql, onEvent);
     } else {
       runWithoutToolCall(question, onEvent);
@@ -135,6 +153,24 @@ public class MockLlmProvider implements DataAgentProvider {
     if (dataSource instanceof com.zaxxer.hikari.HikariDataSource) {
       ((com.zaxxer.hikari.HikariDataSource) dataSource).close();
     }
+  }
+
+  /**
+   * Resolve a user question to SQL. Checks NL_TO_SQL mappings first, then falls back to regex
+   * extraction of raw SQL from the input.
+   */
+  private static String resolveToSql(String question) {
+    String lower = question.toLowerCase().trim();
+    for (Map.Entry<String, String> entry : NL_TO_SQL.entrySet()) {
+      if (lower.startsWith(entry.getKey())) {
+        return entry.getValue();
+      }
+    }
+    Matcher matcher = SQL_PATTERN.matcher(question);
+    if (matcher.find()) {
+      return matcher.group(1).trim();
+    }
+    return null;
   }
 
   private static String escapeJson(String s) {

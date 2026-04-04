@@ -120,7 +120,7 @@ class DataAgentMockLlmSuite extends HiveJDBCTestHelper with WithDataAgentEngine 
     withJdbcStatement() { stmt =>
       val (text, events) = executeAndCollect(
         stmt,
-        "SELECT name, department FROM employees ORDER BY id")
+        "List all employee names and departments")
       // Verify tool call event was emitted
       val toolCallEvents = events.filter(_.path("type").asText() == "tool_call")
       assert(toolCallEvents.nonEmpty, "Expected tool_call event")
@@ -153,7 +153,7 @@ class DataAgentMockLlmSuite extends HiveJDBCTestHelper with WithDataAgentEngine 
     withJdbcStatement() { stmt =>
       val (_, events) = executeAndCollect(
         stmt,
-        "SELECT COUNT(*) FROM employees")
+        "Count the total number of employees")
       val types = events.map(_.path("type").asText())
 
       // Verify event ordering for a tool-call flow
@@ -175,7 +175,7 @@ class DataAgentMockLlmSuite extends HiveJDBCTestHelper with WithDataAgentEngine 
     withJdbcStatement() { stmt =>
       val (text, _) = executeAndCollect(
         stmt,
-        "SELECT department, COUNT(*) as cnt FROM employees GROUP BY department")
+        "How many employees in each department")
       // Engineering has 2, Marketing has 1
       assert(text.contains("Engineering"))
       assert(text.contains("Marketing"))
