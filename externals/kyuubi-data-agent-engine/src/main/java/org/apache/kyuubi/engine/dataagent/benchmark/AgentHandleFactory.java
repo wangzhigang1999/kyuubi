@@ -25,6 +25,7 @@ import org.apache.kyuubi.engine.dataagent.datasource.DataSourceFactory;
 import org.apache.kyuubi.engine.dataagent.datasource.JdbcDialect;
 import org.apache.kyuubi.engine.dataagent.prompt.SystemPromptBuilder;
 import org.apache.kyuubi.engine.dataagent.runtime.ReactAgent;
+import org.apache.kyuubi.engine.dataagent.runtime.middleware.LoggingMiddleware;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
 import org.apache.kyuubi.engine.dataagent.tool.sql.RunSelectQueryTool;
 import org.slf4j.Logger;
@@ -56,6 +57,7 @@ public final class AgentHandleFactory implements AutoCloseable {
     public long toolCallTimeoutSeconds = 120;
     public int llmTimeoutSeconds = 180;
     public int llmMaxRetries = 3;
+    public boolean verboseLogging = false;
   }
 
   private final Config cfg;
@@ -95,13 +97,16 @@ public final class AgentHandleFactory implements AutoCloseable {
         prompt.datasource(dialect.datasourceName());
       }
 
-      ReactAgent agent = ReactAgent.builder()
+      ReactAgent.Builder builder = ReactAgent.builder()
           .client(client)
           .modelName(cfg.modelName)
           .toolRegistry(registry)
           .maxIterations(cfg.maxIterations)
-          .systemPrompt(prompt.build())
-          .build();
+          .systemPrompt(prompt.build());
+      if (cfg.verboseLogging) {
+        builder.addMiddleware(new LoggingMiddleware());
+      }
+      ReactAgent agent = builder.build();
 
       return new AgentHandle(agent, registry, ds);
     } catch (RuntimeException e) {

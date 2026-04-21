@@ -71,6 +71,7 @@ public final class BirdBenchmarkMain {
     fcfg.baseUrl = apiUrl;
     fcfg.modelName = modelName;
     fcfg.maxIterations = Integer.parseInt(opts.getOrDefault("max-iterations", "30"));
+    fcfg.verboseLogging = "true".equalsIgnoreCase(opts.getOrDefault("verbose", "false"));
 
     BenchmarkRunner.Config rcfg = new BenchmarkRunner.Config();
     rcfg.outputDir = Paths.get(outputDir);

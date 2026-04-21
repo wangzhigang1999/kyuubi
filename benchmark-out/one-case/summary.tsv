@@ -1,0 +1,4 @@
+group	name	total	gen_ok	ex_ok	ex_acc	soft_f1	avg_tokens	avg_steps	avg_ms
+overall	overall	1	1	1	100.00	100.00	14847	5.0	13753
+db	debit_card_specializing	1	1	1	100.00	100.00	14847	5.0	13753
+difficulty	simple	1	1	1	100.00	100.00	14847	5.0	13753
