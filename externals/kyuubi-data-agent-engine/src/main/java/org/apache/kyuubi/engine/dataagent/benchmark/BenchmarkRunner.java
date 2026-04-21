@@ -85,6 +85,8 @@ public final class BenchmarkRunner {
     Path jsonlPath = cfg.outputDir.resolve("results.jsonl");
     Path checkpointPath = cfg.outputDir.resolve("checkpoint.json");
     Path summaryPath = cfg.outputDir.resolve("summary.tsv");
+    Path logsDir = cfg.outputDir.resolve("logs");
+    Files.createDirectories(logsDir);
 
     Set<String> completed = cfg.resume ? loadCompleted(checkpointPath) : new java.util.HashSet<>();
     List<BenchmarkResult> priorResults = cfg.resume ? loadPriorResults(jsonlPath, completed) : new ArrayList<>();
@@ -108,7 +110,7 @@ public final class BenchmarkRunner {
       ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, cfg.concurrency));
       List<Future<BenchmarkResult>> futures = new ArrayList<>(pending.size());
       for (final BenchmarkExample ex : pending) {
-        futures.add(pool.submit(() -> runOne(ex, dataset, factory)));
+        futures.add(pool.submit(() -> runOne(ex, dataset, factory, logsDir)));
       }
 
       AtomicInteger done = new AtomicInteger(0);
@@ -154,42 +156,63 @@ public final class BenchmarkRunner {
   }
 
   private BenchmarkResult runOne(
-      BenchmarkExample ex, BenchmarkDataset dataset, AgentHandleFactory factory) {
+      BenchmarkExample ex, BenchmarkDataset dataset, AgentHandleFactory factory, Path logsDir) {
     String jdbcUrl = dataset.resolveDbJdbcUrl(ex.dbId());
     long start = System.currentTimeMillis();
     EventCollector collector = new EventCollector();
 
+    TraceWriter trace = null;
+    try {
+      trace = TraceWriter.open(logsDir, ex.id());
+      trace.header(ex, jdbcUrl);
+    } catch (IOException e) {
+      LOG.warn("Failed to open trace log for {}: {}", ex.id(), e.toString());
+    }
+
+    // Fan-out consumer: trace writer + internal collector. Trace may be null if file open failed,
+    // in which case we still run — tracing is diagnostic, not required for scoring.
+    final TraceWriter traceRef = trace;
+    java.util.function.Consumer<AgentEvent> consumer = event -> {
+      if (traceRef != null) traceRef.accept(event);
+      collector.accept(event);
+    };
+
+    BenchmarkResult result;
     try (AgentHandle handle = factory.buildFor(jdbcUrl)) {
       ConversationMemory memory = new ConversationMemory();
       String prompt = org.apache.kyuubi.engine.dataagent.benchmark.bird.BirdPromptBuilder.build(ex);
       AgentRunRequest req = new AgentRunRequest(prompt).approvalMode(ApprovalMode.AUTO_APPROVE);
-      handle.agent().run(req, memory, collector);
+      handle.agent().run(req, memory, consumer);
     } catch (Exception e) {
       LOG.warn("Agent run failed for {}: {}", ex.id(), e.toString());
       long elapsed = System.currentTimeMillis() - start;
-      return new BenchmarkResult(
+      result = new BenchmarkResult(
           ex.id(), ex.dbId(), ex.difficulty(), ex.question(), ex.goldSql(),
           null, false, false, 0.0, 0, 0, 0, 0, elapsed,
           "agent error: " + e.getMessage());
+      if (trace != null) { trace.footer(result); trace.close(); }
+      return result;
     }
 
     long elapsed = System.currentTimeMillis() - start;
     String predSql = collector.lastSuccessfulSql;
     if (predSql == null) {
-      return new BenchmarkResult(
+      result = new BenchmarkResult(
           ex.id(), ex.dbId(), ex.difficulty(), ex.question(), ex.goldSql(),
           null, false, false, 0.0, collector.steps,
           collector.promptTokens, collector.completionTokens, collector.totalTokens,
           elapsed, "no sql produced");
+    } else {
+      SqlExecutionEvaluator.EvalOutcome out =
+          SqlExecutionEvaluator.evaluate(jdbcUrl, predSql, ex.goldSql());
+      result = new BenchmarkResult(
+          ex.id(), ex.dbId(), ex.difficulty(), ex.question(), ex.goldSql(),
+          predSql, true, out.ex, out.softF1, collector.steps,
+          collector.promptTokens, collector.completionTokens, collector.totalTokens,
+          elapsed, out.message);
     }
-
-    SqlExecutionEvaluator.EvalOutcome out =
-        SqlExecutionEvaluator.evaluate(jdbcUrl, predSql, ex.goldSql());
-    return new BenchmarkResult(
-        ex.id(), ex.dbId(), ex.difficulty(), ex.question(), ex.goldSql(),
-        predSql, true, out.ex, out.softF1, collector.steps,
-        collector.promptTokens, collector.completionTokens, collector.totalTokens,
-        elapsed, out.message);
+    if (trace != null) { trace.footer(result); trace.close(); }
+    return result;
   }
 
   // ---- event collection ----
