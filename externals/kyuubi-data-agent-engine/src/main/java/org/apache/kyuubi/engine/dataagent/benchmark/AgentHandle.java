@@ -19,6 +19,7 @@ package org.apache.kyuubi.engine.dataagent.benchmark;
 
 import com.zaxxer.hikari.HikariDataSource;
 import javax.sql.DataSource;
+import org.apache.kyuubi.engine.dataagent.benchmark.tool.SubmitSqlTool;
 import org.apache.kyuubi.engine.dataagent.runtime.ReactAgent;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
 import org.slf4j.Logger;
@@ -36,15 +37,23 @@ public final class AgentHandle implements AutoCloseable {
   private final ReactAgent agent;
   private final ToolRegistry registry;
   private final DataSource dataSource;
+  private final SubmitSqlTool submitTool;
 
-  public AgentHandle(ReactAgent agent, ToolRegistry registry, DataSource dataSource) {
+  public AgentHandle(
+      ReactAgent agent, ToolRegistry registry, DataSource dataSource, SubmitSqlTool submitTool) {
     this.agent = agent;
     this.registry = registry;
     this.dataSource = dataSource;
+    this.submitTool = submitTool;
   }
 
   public ReactAgent agent() {
     return agent;
+  }
+
+  /** SQL the agent committed via submit_sql, or {@code null} if it never called the tool. */
+  public String submittedSql() {
+    return submitTool.submittedSql();
   }
 
   @Override

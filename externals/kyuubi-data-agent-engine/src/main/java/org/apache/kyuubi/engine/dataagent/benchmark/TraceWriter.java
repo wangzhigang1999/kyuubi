@@ -78,7 +78,7 @@ public final class TraceWriter implements Consumer<AgentEvent>, AutoCloseable {
     line("=== BIRD question " + ex.id() + " (db=" + ex.dbId() + ", difficulty=" + ex.difficulty() + ") ===");
     line("jdbc: " + jdbcUrl);
     line("question: " + ex.question());
-    if (ex.evidence() != null && !ex.evidence().isEmpty()) {
+    if (!ex.evidence().isEmpty()) {
       line("evidence: " + ex.evidence());
     }
     line("gold_sql: " + ex.goldSql());

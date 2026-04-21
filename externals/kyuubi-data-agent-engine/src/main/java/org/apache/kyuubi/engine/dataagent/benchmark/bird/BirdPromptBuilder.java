@@ -37,8 +37,8 @@ public final class BirdPromptBuilder {
     sb.append("You are solving a BIRD-SQL benchmark question against a SQLite database.\n\n");
 
     sb.append("Workflow\n")
-        .append("- Explore schema and validate candidates with run_select_query.\n")
-        .append("- Your LAST successful run_select_query is the scored answer. End with exactly that query.\n\n");
+        .append("- Use run_select_query to explore the schema and validate candidate queries.\n")
+        .append("- When confident, call submit_sql exactly once with your final answer. ONLY the SQL submitted that way is scored.\n\n");
 
     sb.append("Rules for the final query\n")
         .append("- SELECT only the columns the question explicitly asks for, in the order the question mentions them.")

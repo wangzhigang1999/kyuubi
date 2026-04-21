@@ -24,6 +24,7 @@ import javax.sql.DataSource;
 import org.apache.kyuubi.engine.dataagent.datasource.DataSourceFactory;
 import org.apache.kyuubi.engine.dataagent.datasource.JdbcDialect;
 import org.apache.kyuubi.engine.dataagent.prompt.SystemPromptBuilder;
+import org.apache.kyuubi.engine.dataagent.benchmark.tool.SubmitSqlTool;
 import org.apache.kyuubi.engine.dataagent.runtime.ReactAgent;
 import org.apache.kyuubi.engine.dataagent.runtime.middleware.LoggingMiddleware;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
@@ -90,6 +91,8 @@ public final class AgentHandleFactory implements AutoCloseable {
       ds = DataSourceFactory.create(jdbcUrl);
       registry = new ToolRegistry(cfg.toolCallTimeoutSeconds);
       registry.register(new RunSelectQueryTool(ds, cfg.queryTimeoutSeconds));
+      SubmitSqlTool submitTool = new SubmitSqlTool(ds, cfg.queryTimeoutSeconds);
+      registry.register(submitTool);
 
       SystemPromptBuilder prompt = SystemPromptBuilder.create();
       JdbcDialect dialect = JdbcDialect.fromUrl(jdbcUrl);
@@ -108,7 +111,7 @@ public final class AgentHandleFactory implements AutoCloseable {
       }
       ReactAgent agent = builder.build();
 
-      return new AgentHandle(agent, registry, ds);
+      return new AgentHandle(agent, registry, ds, submitTool);
     } catch (RuntimeException e) {
       if (registry != null) {
         try {

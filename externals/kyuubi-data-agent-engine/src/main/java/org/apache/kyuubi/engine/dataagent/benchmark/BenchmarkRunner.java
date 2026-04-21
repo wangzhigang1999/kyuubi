@@ -178,11 +178,13 @@ public final class BenchmarkRunner {
     };
 
     BenchmarkResult result;
+    String submittedSql = null;
     try (AgentHandle handle = factory.buildFor(jdbcUrl)) {
       ConversationMemory memory = new ConversationMemory();
       String prompt = org.apache.kyuubi.engine.dataagent.benchmark.bird.BirdPromptBuilder.build(ex);
       AgentRunRequest req = new AgentRunRequest(prompt).approvalMode(ApprovalMode.AUTO_APPROVE);
       handle.agent().run(req, memory, consumer);
+      submittedSql = handle.submittedSql();
     } catch (Exception e) {
       LOG.warn("Agent run failed for {}: {}", ex.id(), e.toString());
       long elapsed = System.currentTimeMillis() - start;
@@ -195,7 +197,9 @@ public final class BenchmarkRunner {
     }
 
     long elapsed = System.currentTimeMillis() - start;
-    String predSql = collector.lastSuccessfulSql;
+    // Prefer the SQL the agent explicitly committed via submit_sql; fall back to the "last
+    // successful run_select_query" heuristic only if the agent never submitted.
+    String predSql = submittedSql != null ? submittedSql : collector.lastSuccessfulSql;
     if (predSql == null) {
       result = new BenchmarkResult(
           ex.id(), ex.dbId(), ex.difficulty(), ex.question(), ex.goldSql(),
