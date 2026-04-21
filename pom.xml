@@ -130,7 +130,7 @@
         <apache.archive.dist>https://www.apache.org/dyn/closer.lua</apache.archive.dist>
         <atlas.version>2.3.0</atlas.version>
         <byte-buddy.version>1.17.6</byte-buddy.version>
-        <bouncycastle.version>1.79</bouncycastle.version>
+        <bouncycastle.version>1.84</bouncycastle.version>
         <codahale.metrics.version>4.2.30</codahale.metrics.version>
         <commons-cli.version>1.5.0</commons-cli.version>
         <commons-codec.version>1.17.1</commons-codec.version>
@@ -183,7 +183,7 @@
         <kyuubi-relocated.version>0.6.0</kyuubi-relocated.version>
         <kyuubi-relocated-zookeeper.artifacts>kyuubi-relocated-zookeeper-34</kyuubi-relocated-zookeeper.artifacts>
         <ldapsdk.version>6.0.5</ldapsdk.version>
-        <log4j.version>2.25.3</log4j.version>
+        <log4j.version>2.25.4</log4j.version>
         <mysql.jdbc.version>8.4.0</mysql.jdbc.version>
         <mockito.version>4.11.0</mockito.version>
         <netty.version>4.2.7.Final</netty.version>
