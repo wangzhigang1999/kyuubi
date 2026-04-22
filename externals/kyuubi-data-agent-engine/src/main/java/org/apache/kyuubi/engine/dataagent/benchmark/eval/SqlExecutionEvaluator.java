@@ -40,9 +40,9 @@ import java.util.Set;
  *       evaluation_f1.py}; gives partial credit for near-misses.
  * </ul>
  *
- * <p>Execution uses a short-lived JDBC connection per SQL. Result sets are materialized into
- * {@link ResultRows} and capped at {@link #MAX_ROWS} to bound memory; larger gold sets are not
- * expected in BIRD dev split.
+ * <p>Execution uses a short-lived JDBC connection per SQL. Result sets are materialized into {@link
+ * ResultRows} and capped at {@link #MAX_ROWS} to bound memory; larger gold sets are not expected in
+ * BIRD dev split.
  */
 public final class SqlExecutionEvaluator {
 
@@ -199,7 +199,9 @@ public final class SqlExecutionEvaluator {
     for (Object v : gtNorm) {
       if (!predNorm.contains(v)) truthOnly++;
     }
-    return new double[] {(double) matches / total, (double) predOnly / total, (double) truthOnly / total};
+    return new double[] {
+      (double) matches / total, (double) predOnly / total, (double) truthOnly / total
+    };
   }
 
   private static List<List<Object>> dedup(List<List<Object>> rows) {

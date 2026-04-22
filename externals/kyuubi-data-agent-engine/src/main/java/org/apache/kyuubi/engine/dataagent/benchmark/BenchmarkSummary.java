@@ -112,7 +112,8 @@ public final class BenchmarkSummary {
 
   public String toTsv() {
     StringBuilder sb = new StringBuilder();
-    sb.append("group\tname\ttotal\tgen_ok\tex_ok\tex_acc\tsoft_f1\tavg_tokens\tavg_steps\tavg_ms\n");
+    sb.append(
+        "group\tname\ttotal\tgen_ok\tex_ok\tex_acc\tsoft_f1\tavg_tokens\tavg_steps\tavg_ms\n");
     appendTsvRow(sb, "overall", overall);
     for (Bucket b : byDb.values()) appendTsvRow(sb, "db", b);
     for (Bucket b : byDifficulty.values()) appendTsvRow(sb, "difficulty", b);
@@ -120,15 +121,26 @@ public final class BenchmarkSummary {
   }
 
   private static void appendTsvRow(StringBuilder sb, String group, Bucket b) {
-    sb.append(group).append('\t').append(b.name).append('\t')
-        .append(b.total).append('\t')
-        .append(b.genOk).append('\t')
-        .append(b.exOk).append('\t')
-        .append(String.format("%.2f", b.exAcc())).append('\t')
-        .append(String.format("%.2f", b.avgF1())).append('\t')
-        .append(b.avgTokens()).append('\t')
-        .append(String.format("%.1f", b.avgSteps())).append('\t')
-        .append(b.avgElapsedMs()).append('\n');
+    sb.append(group)
+        .append('\t')
+        .append(b.name)
+        .append('\t')
+        .append(b.total)
+        .append('\t')
+        .append(b.genOk)
+        .append('\t')
+        .append(b.exOk)
+        .append('\t')
+        .append(String.format("%.2f", b.exAcc()))
+        .append('\t')
+        .append(String.format("%.2f", b.avgF1()))
+        .append('\t')
+        .append(b.avgTokens())
+        .append('\t')
+        .append(String.format("%.1f", b.avgSteps()))
+        .append('\t')
+        .append(b.avgElapsedMs())
+        .append('\n');
   }
 
   public String toPrettyString() {
@@ -147,7 +159,8 @@ public final class BenchmarkSummary {
   }
 
   private static void appendPrettyRow(StringBuilder sb, Bucket b) {
-    sb.append(String.format(
+    sb.append(
+        String.format(
             "%-20s total=%d gen=%.1f%% EX=%.2f%% F1=%.2f%% tok=%d steps=%.1f %dms%n",
             b.name,
             b.total,

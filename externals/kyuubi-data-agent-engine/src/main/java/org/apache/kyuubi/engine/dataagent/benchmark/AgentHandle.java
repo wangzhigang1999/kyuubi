@@ -59,7 +59,7 @@ public final class AgentHandle implements AutoCloseable {
   @Override
   public void close() {
     try {
-      agent.close();
+      agent.stop();
     } catch (Exception e) {
       LOG.warn("Error closing ReactAgent", e);
     }

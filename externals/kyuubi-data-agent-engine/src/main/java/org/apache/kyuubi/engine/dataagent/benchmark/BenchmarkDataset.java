@@ -33,8 +33,7 @@ public interface BenchmarkDataset {
   List<BenchmarkExample> examples();
 
   /**
-   * Resolve the JDBC URL for the given logical {@code dbId}. Called once per example by the
-   * runner.
+   * Resolve the JDBC URL for the given logical {@code dbId}. Called once per example by the runner.
    */
   String resolveDbJdbcUrl(String dbId);
 }

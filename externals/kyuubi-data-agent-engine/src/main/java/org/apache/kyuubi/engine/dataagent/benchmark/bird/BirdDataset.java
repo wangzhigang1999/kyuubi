@@ -65,18 +65,21 @@ public final class BirdDataset implements BenchmarkDataset {
     for (JsonNode node : root) {
       String diff = node.path("difficulty").asText("");
       String dbId = node.path("db_id").asText("");
-      if (difficulty != null && !difficulty.isEmpty() && !difficulty.equalsIgnoreCase(diff)) continue;
+      if (difficulty != null && !difficulty.isEmpty() && !difficulty.equalsIgnoreCase(diff))
+        continue;
       if (dbIdFilter != null && !dbIdFilter.isEmpty() && !dbIdFilter.equals(dbId)) continue;
-      String id = node.hasNonNull("question_id")
-          ? node.get("question_id").asText()
-          : String.valueOf(all.size());
-      all.add(new BenchmarkExample(
-          id,
-          dbId,
-          node.path("question").asText(""),
-          node.path("SQL").asText(""),
-          node.path("evidence").asText(""),
-          diff));
+      String id =
+          node.hasNonNull("question_id")
+              ? node.get("question_id").asText()
+              : String.valueOf(all.size());
+      all.add(
+          new BenchmarkExample(
+              id,
+              dbId,
+              node.path("question").asText(""),
+              node.path("SQL").asText(""),
+              node.path("evidence").asText(""),
+              diff));
       if (limit > 0 && all.size() >= limit) break;
     }
     return new BirdDataset(all, dbDir);

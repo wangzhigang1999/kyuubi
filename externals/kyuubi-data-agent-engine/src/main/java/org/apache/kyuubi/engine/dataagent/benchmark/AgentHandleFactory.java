@@ -21,10 +21,10 @@ import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import java.time.Duration;
 import javax.sql.DataSource;
+import org.apache.kyuubi.engine.dataagent.benchmark.tool.SubmitSqlTool;
 import org.apache.kyuubi.engine.dataagent.datasource.DataSourceFactory;
 import org.apache.kyuubi.engine.dataagent.datasource.JdbcDialect;
 import org.apache.kyuubi.engine.dataagent.prompt.SystemPromptBuilder;
-import org.apache.kyuubi.engine.dataagent.benchmark.tool.SubmitSqlTool;
 import org.apache.kyuubi.engine.dataagent.runtime.ReactAgent;
 import org.apache.kyuubi.engine.dataagent.runtime.middleware.LoggingMiddleware;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
@@ -75,12 +75,13 @@ public final class AgentHandleFactory implements AutoCloseable {
       throw new IllegalArgumentException("modelName is required");
     }
     this.cfg = cfg;
-    this.client = OpenAIOkHttpClient.builder()
-        .apiKey(cfg.apiKey)
-        .baseUrl(cfg.baseUrl)
-        .maxRetries(cfg.llmMaxRetries)
-        .timeout(Duration.ofSeconds(cfg.llmTimeoutSeconds))
-        .build();
+    this.client =
+        OpenAIOkHttpClient.builder()
+            .apiKey(cfg.apiKey)
+            .baseUrl(cfg.baseUrl)
+            .maxRetries(cfg.llmMaxRetries)
+            .timeout(Duration.ofSeconds(cfg.llmTimeoutSeconds))
+            .build();
   }
 
   /** Build a fresh {@link AgentHandle} for the given JDBC URL. Caller must close it. */
@@ -100,12 +101,13 @@ public final class AgentHandleFactory implements AutoCloseable {
         prompt.datasource(dialect.datasourceName());
       }
 
-      ReactAgent.Builder builder = ReactAgent.builder()
-          .client(client)
-          .modelName(cfg.modelName)
-          .toolRegistry(registry)
-          .maxIterations(cfg.maxIterations)
-          .systemPrompt(prompt.build());
+      ReactAgent.Builder builder =
+          ReactAgent.builder()
+              .client(client)
+              .modelName(cfg.modelName)
+              .toolRegistry(registry)
+              .maxIterations(cfg.maxIterations)
+              .systemPrompt(prompt.build());
       if (cfg.verboseLogging) {
         builder.addMiddleware(new LoggingMiddleware());
       }

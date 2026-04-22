@@ -39,7 +39,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.kyuubi.engine.dataagent.benchmark.eval.SqlExecutionEvaluator;
-import org.apache.kyuubi.engine.dataagent.runtime.AgentRunRequest;
+import org.apache.kyuubi.engine.dataagent.runtime.AgentInvocation;
 import org.apache.kyuubi.engine.dataagent.runtime.ApprovalMode;
 import org.apache.kyuubi.engine.dataagent.runtime.ConversationMemory;
 import org.apache.kyuubi.engine.dataagent.runtime.event.AgentEvent;
@@ -53,8 +53,8 @@ import org.slf4j.LoggerFactory;
 /**
  * Dataset-agnostic driver: for each {@link BenchmarkExample}, build an isolated {@link AgentHandle}
  * via the factory, run the agent, extract the predicted SQL from the event stream, and evaluate
- * against the gold SQL. Writes per-example lines to {@code results.jsonl}, persists a
- * {@code checkpoint.json} for resume, and emits a {@code summary.tsv} at the end.
+ * against the gold SQL. Writes per-example lines to {@code results.jsonl}, persists a {@code
+ * checkpoint.json} for resume, and emits a {@code summary.tsv} at the end.
  *
  * <p>Prediction extraction heuristic: the agent's "answer" is the last successful {@code
  * run_select_query} tool call observed before {@code AgentFinish}. This is a V1 shortcut; we expect
@@ -89,13 +89,18 @@ public final class BenchmarkRunner {
     Files.createDirectories(logsDir);
 
     Set<String> completed = cfg.resume ? loadCompleted(checkpointPath) : new java.util.HashSet<>();
-    List<BenchmarkResult> priorResults = cfg.resume ? loadPriorResults(jsonlPath, completed) : new ArrayList<>();
+    List<BenchmarkResult> priorResults =
+        cfg.resume ? loadPriorResults(jsonlPath, completed) : new ArrayList<>();
 
     List<BenchmarkExample> pending = new ArrayList<>();
     for (BenchmarkExample ex : dataset.examples()) {
       if (!completed.contains(ex.id())) pending.add(ex);
     }
-    LOG.info("Benchmark {}: {} pending, {} already done", dataset.name(), pending.size(), completed.size());
+    LOG.info(
+        "Benchmark {}: {} pending, {} already done",
+        dataset.name(),
+        pending.size(),
+        completed.size());
 
     BenchmarkSummary summary = BenchmarkSummary.from(priorResults);
     if (pending.isEmpty()) {
@@ -104,8 +109,12 @@ public final class BenchmarkRunner {
     }
 
     // Append-mode writer, synchronized on the writer itself for JSONL atomicity.
-    try (BufferedWriter jsonl = Files.newBufferedWriter(
-            jsonlPath, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
+    try (BufferedWriter jsonl =
+        Files.newBufferedWriter(
+            jsonlPath,
+            StandardCharsets.UTF_8,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.APPEND)) {
 
       ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, cfg.concurrency));
       List<Future<BenchmarkResult>> futures = new ArrayList<>(pending.size());
@@ -133,7 +142,8 @@ public final class BenchmarkRunner {
         int n = done.incrementAndGet();
         if (n % cfg.checkpointEveryN == 0) {
           persistCheckpoint(checkpointPath, unionCompleted(completed, newCompleted), summary);
-          LOG.info("Progress {}/{} ex={} f1={}",
+          LOG.info(
+              "Progress {}/{} ex={} f1={}",
               n,
               pending.size(),
               String.format("%.2f%%", summary.overall().exAcc()),
@@ -172,27 +182,44 @@ public final class BenchmarkRunner {
     // Fan-out consumer: trace writer + internal collector. Trace may be null if file open failed,
     // in which case we still run — tracing is diagnostic, not required for scoring.
     final TraceWriter traceRef = trace;
-    java.util.function.Consumer<AgentEvent> consumer = event -> {
-      if (traceRef != null) traceRef.accept(event);
-      collector.accept(event);
-    };
+    java.util.function.Consumer<AgentEvent> consumer =
+        event -> {
+          if (traceRef != null) traceRef.accept(event);
+          collector.accept(event);
+        };
 
     BenchmarkResult result;
     String submittedSql = null;
     try (AgentHandle handle = factory.buildFor(jdbcUrl)) {
       ConversationMemory memory = new ConversationMemory();
       String prompt = org.apache.kyuubi.engine.dataagent.benchmark.bird.BirdPromptBuilder.build(ex);
-      AgentRunRequest req = new AgentRunRequest(prompt).approvalMode(ApprovalMode.AUTO_APPROVE);
+      AgentInvocation req = new AgentInvocation(prompt).approvalMode(ApprovalMode.AUTO_APPROVE);
       handle.agent().run(req, memory, consumer);
       submittedSql = handle.submittedSql();
     } catch (Exception e) {
       LOG.warn("Agent run failed for {}: {}", ex.id(), e.toString());
       long elapsed = System.currentTimeMillis() - start;
-      result = new BenchmarkResult(
-          ex.id(), ex.dbId(), ex.difficulty(), ex.question(), ex.goldSql(),
-          null, false, false, 0.0, 0, 0, 0, 0, elapsed,
-          "agent error: " + e.getMessage());
-      if (trace != null) { trace.footer(result); trace.close(); }
+      result =
+          new BenchmarkResult(
+              ex.id(),
+              ex.dbId(),
+              ex.difficulty(),
+              ex.question(),
+              ex.goldSql(),
+              null,
+              false,
+              false,
+              0.0,
+              0,
+              0,
+              0,
+              0,
+              elapsed,
+              "agent error: " + e.getMessage());
+      if (trace != null) {
+        trace.footer(result);
+        trace.close();
+      }
       return result;
     }
 
@@ -201,21 +228,48 @@ public final class BenchmarkRunner {
     // successful run_select_query" heuristic only if the agent never submitted.
     String predSql = submittedSql != null ? submittedSql : collector.lastSuccessfulSql;
     if (predSql == null) {
-      result = new BenchmarkResult(
-          ex.id(), ex.dbId(), ex.difficulty(), ex.question(), ex.goldSql(),
-          null, false, false, 0.0, collector.steps,
-          collector.promptTokens, collector.completionTokens, collector.totalTokens,
-          elapsed, "no sql produced");
+      result =
+          new BenchmarkResult(
+              ex.id(),
+              ex.dbId(),
+              ex.difficulty(),
+              ex.question(),
+              ex.goldSql(),
+              null,
+              false,
+              false,
+              0.0,
+              collector.steps,
+              collector.promptTokens,
+              collector.completionTokens,
+              collector.totalTokens,
+              elapsed,
+              "no sql produced");
     } else {
       SqlExecutionEvaluator.EvalOutcome out =
           SqlExecutionEvaluator.evaluate(jdbcUrl, predSql, ex.goldSql());
-      result = new BenchmarkResult(
-          ex.id(), ex.dbId(), ex.difficulty(), ex.question(), ex.goldSql(),
-          predSql, true, out.ex, out.softF1, collector.steps,
-          collector.promptTokens, collector.completionTokens, collector.totalTokens,
-          elapsed, out.message);
+      result =
+          new BenchmarkResult(
+              ex.id(),
+              ex.dbId(),
+              ex.difficulty(),
+              ex.question(),
+              ex.goldSql(),
+              predSql,
+              true,
+              out.ex,
+              out.softF1,
+              collector.steps,
+              collector.promptTokens,
+              collector.completionTokens,
+              collector.totalTokens,
+              elapsed,
+              out.message);
     }
-    if (trace != null) { trace.footer(result); trace.close(); }
+    if (trace != null) {
+      trace.footer(result);
+      trace.close();
+    }
     return result;
   }
 
@@ -344,13 +398,15 @@ public final class BenchmarkRunner {
       root.put("soft_f1", summary.overall().avgF1());
       Path tmp = Paths.get(checkpoint.toString() + ".tmp");
       Files.write(tmp, JSON.writerWithDefaultPrettyPrinter().writeValueAsBytes(root));
-      Files.move(tmp, checkpoint, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+      Files.move(
+          tmp, checkpoint, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
     } catch (IOException e) {
       LOG.warn("Failed to persist checkpoint {}: {}", checkpoint, e.toString());
     }
   }
 
-  private static Set<String> unionCompleted(Set<String> prior, ConcurrentHashMap<String, Boolean> added) {
+  private static Set<String> unionCompleted(
+      Set<String> prior, ConcurrentHashMap<String, Boolean> added) {
     Set<String> out = new java.util.HashSet<>(prior);
     out.addAll(added.keySet());
     return out;

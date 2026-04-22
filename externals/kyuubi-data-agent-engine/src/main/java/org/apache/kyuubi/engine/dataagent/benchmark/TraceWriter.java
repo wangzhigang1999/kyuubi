@@ -40,9 +40,9 @@ import org.slf4j.LoggerFactory;
  * Per-question trace writer. Mirrors the one-log-per-question layout used by data-insight so a
  * single failing example can be read top-to-bottom without grepping through an interleaved stream.
  *
- * <p>Writes to {@code {outputDir}/logs/{qid}.log}. Not a middleware: subscribes as a plain
- * {@link Consumer} of {@link AgentEvent}, which keeps the engine's middleware chain unchanged and
- * means a run without a trace writer is byte-identical to one with.
+ * <p>Writes to {@code {outputDir}/logs/{qid}.log}. Not a middleware: subscribes as a plain {@link
+ * Consumer} of {@link AgentEvent}, which keeps the engine's middleware chain unchanged and means a
+ * run without a trace writer is byte-identical to one with.
  *
  * <p>Tool results are truncated to {@link #RESULT_PREVIEW} chars — enough to see the shape of the
  * returned rows without inflating logs to megabytes on large SELECTs.
@@ -64,8 +64,12 @@ public final class TraceWriter implements Consumer<AgentEvent>, AutoCloseable {
   public static TraceWriter open(Path logsDir, String qid) throws IOException {
     Files.createDirectories(logsDir);
     Path p = logsDir.resolve(qid + ".log");
-    BufferedWriter w = Files.newBufferedWriter(
-        p, StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+    BufferedWriter w =
+        Files.newBufferedWriter(
+            p,
+            StandardCharsets.UTF_8,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.TRUNCATE_EXISTING);
     return new TraceWriter(w, p);
   }
 
@@ -75,7 +79,14 @@ public final class TraceWriter implements Consumer<AgentEvent>, AutoCloseable {
 
   /** Write a header block with question metadata before the agent starts. */
   public synchronized void header(BenchmarkExample ex, String jdbcUrl) {
-    line("=== BIRD question " + ex.id() + " (db=" + ex.dbId() + ", difficulty=" + ex.difficulty() + ") ===");
+    line(
+        "=== BIRD question "
+            + ex.id()
+            + " (db="
+            + ex.dbId()
+            + ", difficulty="
+            + ex.difficulty()
+            + ") ===");
     line("jdbc: " + jdbcUrl);
     line("question: " + ex.question());
     if (!ex.evidence().isEmpty()) {
@@ -90,7 +101,13 @@ public final class TraceWriter implements Consumer<AgentEvent>, AutoCloseable {
     line("---");
     line("pred_sql: " + (r.predSql == null ? "<none>" : r.predSql));
     line("gen_ok=" + r.genOk + " ex=" + r.ex + " soft_f1=" + String.format("%.3f", r.softF1));
-    line("tokens: prompt=" + r.promptTokens + " completion=" + r.completionTokens + " total=" + r.totalTokens);
+    line(
+        "tokens: prompt="
+            + r.promptTokens
+            + " completion="
+            + r.completionTokens
+            + " total="
+            + r.totalTokens);
     line("steps=" + r.steps + " elapsed_ms=" + r.elapsedMs);
     if (r.error != null) line("eval_message: " + r.error);
   }
@@ -114,16 +131,28 @@ public final class TraceWriter implements Consumer<AgentEvent>, AutoCloseable {
         break;
       case TOOL_RESULT:
         ToolResult tr = (ToolResult) event;
-        line("tool_result " + tr.toolName() + (tr.isError() ? " [ERROR]" : "") + ":\n"
-            + truncate(tr.output(), RESULT_PREVIEW));
+        line(
+            "tool_result "
+                + tr.toolName()
+                + (tr.isError() ? " [ERROR]" : "")
+                + ":\n"
+                + truncate(tr.output(), RESULT_PREVIEW));
         break;
       case ERROR:
         line("ERROR " + event);
         break;
       case AGENT_FINISH:
         AgentFinish f = (AgentFinish) event;
-        line("AgentFinish steps=" + f.totalSteps() + " tokens=" + f.totalTokens()
-            + " (prompt=" + f.promptTokens() + ", completion=" + f.completionTokens() + ")");
+        line(
+            "AgentFinish steps="
+                + f.totalSteps()
+                + " tokens="
+                + f.totalTokens()
+                + " (prompt="
+                + f.promptTokens()
+                + ", completion="
+                + f.completionTokens()
+                + ")");
         break;
       default:
         // Ignore token-level deltas and step-end — too chatty for a trace log.

@@ -48,10 +48,11 @@ public final class BirdBenchmarkMain {
     Map<String, String> opts = parseArgs(args);
     String datasetJson = required(opts, "dataset-json");
     String dbDir = required(opts, "db-dir");
-    String outputDir = opts.getOrDefault(
-        "output-dir",
-        "benchmark-out/"
-            + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")));
+    String outputDir =
+        opts.getOrDefault(
+            "output-dir",
+            "benchmark-out/"
+                + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")));
     int concurrency = Integer.parseInt(opts.getOrDefault("concurrency", "8"));
     int limit = Integer.parseInt(opts.getOrDefault("limit", "0"));
     String difficulty = opts.getOrDefault("difficulty", "");
@@ -62,8 +63,13 @@ public final class BirdBenchmarkMain {
     String apiUrl = envRequired("DATA_AGENT_LLM_API_URL");
     String modelName = envRequired("DATA_AGENT_LLM_MODEL");
 
-    BirdDataset dataset = BirdDataset.load(Paths.get(datasetJson), Paths.get(dbDir),
-        "all".equalsIgnoreCase(difficulty) ? "" : difficulty, dbFilter, limit);
+    BirdDataset dataset =
+        BirdDataset.load(
+            Paths.get(datasetJson),
+            Paths.get(dbDir),
+            "all".equalsIgnoreCase(difficulty) ? "" : difficulty,
+            dbFilter,
+            limit);
     System.out.println("Loaded " + dataset.examples().size() + " BIRD examples");
 
     AgentHandleFactory.Config fcfg = new AgentHandleFactory.Config();
