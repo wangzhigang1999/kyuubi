@@ -58,6 +58,9 @@ public final class BirdBenchmarkMain {
     String difficulty = opts.getOrDefault("difficulty", "");
     String dbFilter = opts.getOrDefault("db", "");
     boolean resume = !"false".equalsIgnoreCase(opts.getOrDefault("resume", "true"));
+    // e.g. jdbc:hive2://host:10009 ; empty = SQLite-only (original behavior)
+    String sparkUrl = opts.getOrDefault("spark-url", "");
+    String sparkUser = opts.getOrDefault("spark-user", "root");
 
     String apiKey = envRequired("DATA_AGENT_LLM_API_KEY");
     String apiUrl = envRequired("DATA_AGENT_LLM_API_URL");
@@ -69,7 +72,9 @@ public final class BirdBenchmarkMain {
             Paths.get(dbDir),
             "all".equalsIgnoreCase(difficulty) ? "" : difficulty,
             dbFilter,
-            limit);
+            limit,
+            sparkUrl.isEmpty() ? null : sparkUrl,
+            sparkUrl.isEmpty() ? null : sparkUser);
     System.out.println("Loaded " + dataset.examples().size() + " BIRD examples");
 
     AgentHandleFactory.Config fcfg = new AgentHandleFactory.Config();
@@ -78,6 +83,7 @@ public final class BirdBenchmarkMain {
     fcfg.modelName = modelName;
     fcfg.maxIterations = Integer.parseInt(opts.getOrDefault("max-iterations", "30"));
     fcfg.verboseLogging = "true".equalsIgnoreCase(opts.getOrDefault("verbose", "false"));
+    fcfg.jdbcUser = sparkUrl.isEmpty() ? null : sparkUser;
 
     BenchmarkRunner.Config rcfg = new BenchmarkRunner.Config();
     rcfg.outputDir = Paths.get(outputDir);

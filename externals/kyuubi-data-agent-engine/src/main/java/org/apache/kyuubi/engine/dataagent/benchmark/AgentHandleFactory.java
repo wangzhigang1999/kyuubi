@@ -67,6 +67,12 @@ public final class AgentHandleFactory implements AutoCloseable {
     public boolean verboseLogging = false;
     /** Prompt-token threshold above which CompactionMiddleware folds older history. */
     public long compactionTriggerTokens = 128_000L;
+    /**
+     * JDBC user for Kyuubi/Spark backends. Kyuubi maps the JDBC user to the proxy user that owns
+     * the Spark engine session; omitting it falls back to "anonymous" which typically fails Hadoop
+     * impersonation. Ignored by file-backed drivers like SQLite.
+     */
+    public String jdbcUser;
   }
 
   private final Config cfg;
@@ -97,7 +103,7 @@ public final class AgentHandleFactory implements AutoCloseable {
     DataSource ds = null;
     ToolRegistry registry = null;
     try {
-      ds = DataSourceFactory.create(jdbcUrl);
+      ds = DataSourceFactory.create(jdbcUrl, cfg.jdbcUser);
       registry = new ToolRegistry(cfg.toolCallTimeoutSeconds);
       registry.register(new RunSelectQueryTool(ds, cfg.queryTimeoutSeconds));
       SubmitSqlTool submitTool = new SubmitSqlTool(ds, cfg.queryTimeoutSeconds);

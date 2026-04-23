@@ -119,21 +119,26 @@ public final class SqlExecutionEvaluator {
     }
   }
 
-  /** Run both predicted and gold SQL, compute EX + Soft-F1. */
+  /** Run both predicted and gold SQL against the same URL, compute EX + Soft-F1. */
   public static EvalOutcome evaluate(String jdbcUrl, String predSql, String goldSql) {
-    return evaluate(jdbcUrl, predSql, goldSql, DEFAULT_QUERY_TIMEOUT_SECONDS);
+    return evaluate(jdbcUrl, jdbcUrl, predSql, goldSql, DEFAULT_QUERY_TIMEOUT_SECONDS);
   }
 
+  /**
+   * Run pred and gold against potentially different JDBC URLs — used when the agent runs on one
+   * backend (e.g. Spark) but gold SQL must stay on the dataset's native backend (SQLite) to remain
+   * a valid ground truth.
+   */
   public static EvalOutcome evaluate(
-      String jdbcUrl, String predSql, String goldSql, int timeoutSeconds) {
+      String predUrl, String goldUrl, String predSql, String goldSql, int timeoutSeconds) {
     if (predSql == null || predSql.trim().isEmpty()) {
       return new EvalOutcome(false, 0.0, "no predicted sql");
     }
-    ExecResult pred = execute(jdbcUrl, predSql, timeoutSeconds);
+    ExecResult pred = execute(predUrl, predSql, timeoutSeconds);
     if (!pred.success) {
       return new EvalOutcome(false, 0.0, "pred error: " + pred.error);
     }
-    ExecResult gold = execute(jdbcUrl, goldSql, timeoutSeconds);
+    ExecResult gold = execute(goldUrl, goldSql, timeoutSeconds);
     if (!gold.success) {
       return new EvalOutcome(false, 0.0, "gold error: " + gold.error);
     }

@@ -33,7 +33,16 @@ public interface BenchmarkDataset {
   List<BenchmarkExample> examples();
 
   /**
-   * Resolve the JDBC URL for the given logical {@code dbId}. Called once per example by the runner.
+   * Resolve the JDBC URL the agent (and pred-SQL evaluator) will target. Called once per example.
    */
   String resolveDbJdbcUrl(String dbId);
+
+  /**
+   * URL against which gold SQL is executed to produce ground truth. Defaults to the same URL the
+   * agent uses, which is correct for single-backend runs; cross-backend setups (e.g. agent on
+   * Spark, gold SQL stays on local SQLite) override this.
+   */
+  default String resolveGoldJdbcUrl(String dbId) {
+    return resolveDbJdbcUrl(dbId);
+  }
 }

@@ -39,22 +39,39 @@ public final class BirdDataset implements BenchmarkDataset {
 
   private final List<BenchmarkExample> examples;
   private final Path dbDir;
+  // When non-null, agent and pred SQL run against Kyuubi/Spark (`jdbc:hive2://host:port`) and the
+  // logical database is {@code bird_<db_id>}. Gold SQL always stays on local SQLite as ground truth.
+  private final String sparkBaseUrl;
+  private final String sparkUser;
   private final ConcurrentHashMap<String, String> urlCache = new ConcurrentHashMap<>();
 
-  private BirdDataset(List<BenchmarkExample> examples, Path dbDir) {
+  private BirdDataset(
+      List<BenchmarkExample> examples, Path dbDir, String sparkBaseUrl, String sparkUser) {
     this.examples = Collections.unmodifiableList(examples);
     this.dbDir = dbDir;
+    this.sparkBaseUrl = sparkBaseUrl;
+    this.sparkUser = sparkUser;
   }
 
   /**
    * @param datasetJson path to the BIRD dev JSON
-   * @param dbDir root of {@code dev_databases/}
+   * @param dbDir root of {@code dev_databases/} (still required even on Spark runs — gold SQL is
+   *     always evaluated against SQLite as ground truth)
    * @param difficulty optional filter ({@code simple|moderate|challenging}); null/empty for all
    * @param dbIdFilter optional db_id filter; null/empty for all
    * @param limit optional cap on the number of examples; 0 or negative for unlimited
+   * @param sparkBaseUrl when non-null, e.g. {@code jdbc:hive2://host:10009}, the agent and pred SQL
+   *     target Kyuubi-managed Spark databases named {@code bird_<db_id>}; null for SQLite-only
+   * @param sparkUser JDBC user for Spark backend (ignored when {@code sparkBaseUrl} is null)
    */
   public static BirdDataset load(
-      Path datasetJson, Path dbDir, String difficulty, String dbIdFilter, int limit)
+      Path datasetJson,
+      Path dbDir,
+      String difficulty,
+      String dbIdFilter,
+      int limit,
+      String sparkBaseUrl,
+      String sparkUser)
       throws IOException {
     ObjectMapper mapper = new ObjectMapper();
     JsonNode root = mapper.readTree(Files.readAllBytes(datasetJson));
@@ -82,7 +99,7 @@ public final class BirdDataset implements BenchmarkDataset {
               diff));
       if (limit > 0 && all.size() >= limit) break;
     }
-    return new BirdDataset(all, dbDir);
+    return new BirdDataset(all, dbDir, sparkBaseUrl, sparkUser);
   }
 
   @Override
@@ -97,10 +114,26 @@ public final class BirdDataset implements BenchmarkDataset {
 
   @Override
   public String resolveDbJdbcUrl(String dbId) {
-    return urlCache.computeIfAbsent(dbId, this::resolveInternal);
+    if (sparkBaseUrl != null) {
+      // Embed the user directly in the URL so both the agent's Hikari-pooled connection and the
+      // evaluator's DriverManager.getConnection land on the same Kyuubi engine session.
+      // Without this the evaluator connects as "anonymous", Kyuubi spins a fresh engine, and the
+      // pred-SQL call times out at kyuubi.session.engine.initialize.timeout (default 180s).
+      String sep = sparkBaseUrl.endsWith("/") ? "" : "/";
+      String userPart =
+          sparkUser != null && !sparkUser.isEmpty() ? ";user=" + sparkUser : "";
+      return sparkBaseUrl + sep + "bird_" + dbId + userPart;
+    }
+    return urlCache.computeIfAbsent(dbId, this::resolveSqliteUrl);
   }
 
-  private String resolveInternal(String dbId) {
+  /** Gold SQL always runs against local SQLite as ground truth, even in Spark mode. */
+  @Override
+  public String resolveGoldJdbcUrl(String dbId) {
+    return urlCache.computeIfAbsent(dbId, this::resolveSqliteUrl);
+  }
+
+  private String resolveSqliteUrl(String dbId) {
     Path nested = dbDir.resolve(dbId).resolve(dbId + ".sqlite");
     if (Files.exists(nested)) return "jdbc:sqlite:" + nested.toAbsolutePath();
     Path flat = dbDir.resolve(dbId + ".sqlite");

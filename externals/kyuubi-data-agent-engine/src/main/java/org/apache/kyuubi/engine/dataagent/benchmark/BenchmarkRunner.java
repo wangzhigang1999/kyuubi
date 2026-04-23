@@ -168,6 +168,7 @@ public final class BenchmarkRunner {
   private BenchmarkResult runOne(
       BenchmarkExample ex, BenchmarkDataset dataset, AgentHandleFactory factory, Path logsDir) {
     String jdbcUrl = dataset.resolveDbJdbcUrl(ex.dbId());
+    String goldUrl = dataset.resolveGoldJdbcUrl(ex.dbId());
     long start = System.currentTimeMillis();
     EventCollector collector = new EventCollector();
 
@@ -192,7 +193,13 @@ public final class BenchmarkRunner {
     String submittedSql = null;
     try (AgentHandle handle = factory.buildFor(jdbcUrl)) {
       ConversationMemory memory = new ConversationMemory();
-      String prompt = org.apache.kyuubi.engine.dataagent.benchmark.bird.BirdPromptBuilder.build(ex);
+      // Tell the prompt which dialect it's actually talking to so the LLM doesn't write SQLite-
+      // only syntax (e.g. strftime) on a Spark backend.
+      org.apache.kyuubi.engine.dataagent.datasource.JdbcDialect dialect =
+          org.apache.kyuubi.engine.dataagent.datasource.JdbcDialect.fromUrl(jdbcUrl);
+      String dialectName = dialect != null ? dialect.datasourceName() : "SQLite";
+      String prompt =
+          org.apache.kyuubi.engine.dataagent.benchmark.bird.BirdPromptBuilder.build(ex, dialectName);
       // sessionId is required by ToolResultOffloadMiddleware -- it skips the afterToolCall hook
       // when ctx.getSessionId() is null, leaving large tool outputs inline and eventually
       // blowing past the LLM input-length limit. Use the question id so each BIRD question gets
@@ -254,7 +261,12 @@ public final class BenchmarkRunner {
               "no sql produced");
     } else {
       SqlExecutionEvaluator.EvalOutcome out =
-          SqlExecutionEvaluator.evaluate(jdbcUrl, predSql, ex.goldSql());
+          SqlExecutionEvaluator.evaluate(
+              jdbcUrl,
+              goldUrl,
+              predSql,
+              ex.goldSql(),
+              SqlExecutionEvaluator.DEFAULT_QUERY_TIMEOUT_SECONDS);
       result =
           new BenchmarkResult(
               ex.id(),

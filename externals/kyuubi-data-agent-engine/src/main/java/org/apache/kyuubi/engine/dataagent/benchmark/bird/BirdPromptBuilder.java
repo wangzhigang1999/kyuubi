@@ -33,8 +33,18 @@ public final class BirdPromptBuilder {
   private BirdPromptBuilder() {}
 
   public static String build(BenchmarkExample ex) {
+    return build(ex, "SQLite");
+  }
+
+  /**
+   * @param dialectName backend dialect shown to the LLM, e.g. {@code "SQLite"} or {@code "Spark
+   *     SQL"}. Mini-dev BIRD ships SQLite; cross-backend runs use the Spark-loaded copies.
+   */
+  public static String build(BenchmarkExample ex, String dialectName) {
     StringBuilder sb = new StringBuilder();
-    sb.append("You are solving a BIRD-SQL benchmark question against a SQLite database.\n\n");
+    sb.append("You are solving a BIRD-SQL benchmark question against a ")
+        .append(dialectName)
+        .append(" database.\n\n");
 
     sb.append("Workflow\n")
         .append("- Use run_select_query to explore the schema and validate candidate queries.\n")
