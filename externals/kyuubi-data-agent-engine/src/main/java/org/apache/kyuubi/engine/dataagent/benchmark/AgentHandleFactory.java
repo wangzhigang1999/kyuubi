@@ -26,7 +26,9 @@ import org.apache.kyuubi.engine.dataagent.datasource.DataSourceFactory;
 import org.apache.kyuubi.engine.dataagent.datasource.JdbcDialect;
 import org.apache.kyuubi.engine.dataagent.prompt.SystemPromptBuilder;
 import org.apache.kyuubi.engine.dataagent.runtime.ReactAgent;
+import org.apache.kyuubi.engine.dataagent.runtime.middleware.CompactionMiddleware;
 import org.apache.kyuubi.engine.dataagent.runtime.middleware.LoggingMiddleware;
+import org.apache.kyuubi.engine.dataagent.runtime.middleware.ToolResultOffloadMiddleware;
 import org.apache.kyuubi.engine.dataagent.tool.ToolRegistry;
 import org.apache.kyuubi.engine.dataagent.tool.sql.RunSelectQueryTool;
 import org.slf4j.Logger;
@@ -40,9 +42,13 @@ import org.slf4j.LoggerFactory;
  * <p>The {@link OpenAIClient} is constructed once and shared across all handles; the SDK's client
  * is thread-safe and pooled, and rebuilding it for every question would crush latency.
  *
- * <p>Benchmark does not need the mutation tool, approval middleware, or logging middleware — those
- * exist to protect production datasources and do not change the SQL-generation behavior being
- * measured.
+ * <p>Wires in the same CompactionMiddleware + ToolResultOffloadMiddleware as the production
+ * OpenAiProvider, because without them wide-schema BIRD databases blow past the LLM's input-length
+ * limit once the agent accumulates tool results across steps — and the failure mode (a raw 400 from
+ * the provider) would make the benchmark measure the wrong thing.
+ *
+ * <p>Benchmark intentionally skips the mutation tool and ApprovalMiddleware: BIRD is read-only and
+ * AUTO_APPROVE would no-op anyway. LoggingMiddleware stays opt-in via {@code verboseLogging}.
  */
 public final class AgentHandleFactory implements AutoCloseable {
 
@@ -59,6 +65,8 @@ public final class AgentHandleFactory implements AutoCloseable {
     public int llmTimeoutSeconds = 180;
     public int llmMaxRetries = 3;
     public boolean verboseLogging = false;
+    /** Prompt-token threshold above which CompactionMiddleware folds older history. */
+    public long compactionTriggerTokens = 128_000L;
   }
 
   private final Config cfg;
@@ -106,6 +114,9 @@ public final class AgentHandleFactory implements AutoCloseable {
               .client(client)
               .modelName(cfg.modelName)
               .toolRegistry(registry)
+              .addMiddleware(new ToolResultOffloadMiddleware())
+              .addMiddleware(
+                  new CompactionMiddleware(client, cfg.modelName, cfg.compactionTriggerTokens))
               .maxIterations(cfg.maxIterations)
               .systemPrompt(prompt.build());
       if (cfg.verboseLogging) {

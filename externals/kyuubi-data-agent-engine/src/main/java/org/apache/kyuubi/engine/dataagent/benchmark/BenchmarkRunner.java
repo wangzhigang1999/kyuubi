@@ -193,7 +193,14 @@ public final class BenchmarkRunner {
     try (AgentHandle handle = factory.buildFor(jdbcUrl)) {
       ConversationMemory memory = new ConversationMemory();
       String prompt = org.apache.kyuubi.engine.dataagent.benchmark.bird.BirdPromptBuilder.build(ex);
-      AgentInvocation req = new AgentInvocation(prompt).approvalMode(ApprovalMode.AUTO_APPROVE);
+      // sessionId is required by ToolResultOffloadMiddleware -- it skips the afterToolCall hook
+      // when ctx.getSessionId() is null, leaving large tool outputs inline and eventually
+      // blowing past the LLM input-length limit. Use the question id so each BIRD question gets
+      // its own offload bucket.
+      AgentInvocation req =
+          new AgentInvocation(prompt)
+              .approvalMode(ApprovalMode.AUTO_APPROVE)
+              .sessionId(ex.id());
       handle.agent().run(req, memory, consumer);
       submittedSql = handle.submittedSql();
     } catch (Exception e) {
