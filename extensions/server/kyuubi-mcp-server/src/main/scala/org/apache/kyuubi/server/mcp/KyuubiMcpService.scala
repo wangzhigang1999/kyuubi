@@ -22,8 +22,9 @@ import scala.collection.JavaConverters._
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.modelcontextprotocol.common.McpTransportContext
 import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper
-import io.modelcontextprotocol.server.{McpServer, McpStatelessServerFeatures, McpStatelessSyncServer}
-import io.modelcontextprotocol.spec.McpSchema
+import io.modelcontextprotocol.server.McpServer
+import io.modelcontextprotocol.server.McpStatelessServerFeatures
+import io.modelcontextprotocol.server.McpStatelessSyncServer
 
 import org.apache.kyuubi.KYUUBI_VERSION
 import org.apache.kyuubi.server.KyuubiRestFrontendService
@@ -35,13 +36,17 @@ private[server] class KyuubiMcpService(frontendService: KyuubiRestFrontendServic
   private val objectMapper = new ObjectMapper()
   private val jsonMapper = new JacksonMcpJsonMapper(objectMapper)
   val transport = new KyuubiMcpHttpTransport(jsonMapper, () => requestContext())
+  private val tools = new KyuubiMcpTools(frontendService, objectMapper, jsonMapper)
+  private val catalog = new KyuubiMcpCatalog()
   private val server: McpStatelessSyncServer = McpServer.sync(transport)
     .serverInfo("Apache Kyuubi", KYUUBI_VERSION)
-    .capabilities(McpSchema.ServerCapabilities.builder().tools(true).build())
+    .instructions(KyuubiMcpCatalog.SERVER_INSTRUCTIONS)
+    .strictToolNameValidation(true)
+    .validateToolInputs(true)
+    .tools(tools.specifications.asJava)
+    .resources(catalog.resources.asJava)
+    .prompts(catalog.prompts.asJava)
     .build()
-
-  private val tools = new KyuubiMcpTools(frontendService, objectMapper, jsonMapper)
-  tools.specifications.foreach(addTool)
 
   def addTool(tool: McpStatelessServerFeatures.SyncToolSpecification): Unit = server.addTool(tool)
 

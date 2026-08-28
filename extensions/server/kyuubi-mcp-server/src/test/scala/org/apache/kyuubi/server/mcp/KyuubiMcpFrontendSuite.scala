@@ -25,7 +25,8 @@ import scala.collection.JavaConverters._
 import org.apache.kyuubi.{RestClientTestHelper, RestFrontendTestHelper}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
-import org.apache.kyuubi.server.http.util.HttpAuthUtils.{basicAuthorizationHeader, AUTHORIZATION_HEADER}
+import org.apache.kyuubi.server.http.util.HttpAuthUtils.AUTHORIZATION_HEADER
+import org.apache.kyuubi.server.http.util.HttpAuthUtils.basicAuthorizationHeader
 import org.apache.kyuubi.service.authentication.UserDefineAuthenticationProviderImpl
 
 class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
@@ -81,6 +82,47 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     val malformedResponse = call("{")
     assert(malformedResponse.getStatus === 400)
     assert(!malformedResponse.readEntity(classOf[String]).contains("stackTrace"))
+  }
+
+  test("MCP advertises its read-only diagnostic contract, resources and prompts") {
+    val initializeResponse = call(
+      """{"jsonrpc":"2.0","id":10,"method":"initialize","params":{"protocolVersion":""" +
+        """"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}""")
+    assert(initializeResponse.getStatus === 200)
+    val initialization = initializeResponse.readEntity(classOf[String])
+    assert(initialization.contains("read-only cluster monitoring and diagnosis"))
+    assert(initialization.contains("\"resources\""))
+    assert(initialization.contains("\"prompts\""))
+
+    val resourcesResponse = call(
+      """{"jsonrpc":"2.0","id":11,"method":"resources/list","params":{}}""")
+    assert(resourcesResponse.getStatus === 200)
+    assert(resourcesResponse.readEntity(classOf[String]).contains(
+      KyuubiMcpCatalog.CAPABILITIES_URI))
+
+    val resourceResponse = call(
+      s"""{"jsonrpc":"2.0","id":12,"method":"resources/read","params":{"uri":""" +
+        s""""${KyuubiMcpCatalog.CAPABILITIES_URI}"}}}""")
+    assert(resourceResponse.getStatus === 200)
+    val resource = resourceResponse.readEntity(classOf[String])
+    assert(resource.contains("does not execute SQL"))
+    assert(resource.contains("never accepts an arbitrary filesystem path"))
+
+    val promptsResponse = call(
+      """{"jsonrpc":"2.0","id":13,"method":"prompts/list","params":{}}""")
+    assert(promptsResponse.getStatus === 200)
+    val prompts = promptsResponse.readEntity(classOf[String])
+    Seq("check_cluster_health", "diagnose_operation", "diagnose_engine_startup")
+      .foreach(name => assert(prompts.contains(name)))
+
+    val promptResponse = call(
+      """{"jsonrpc":"2.0","id":14,"method":"prompts/get","params":{"name":""" +
+        """"diagnose_operation","arguments":{"operation_id":"operation-1"}}}""")
+    assert(promptResponse.getStatus === 200)
+    val prompt = promptResponse.readEntity(classOf[String])
+    assert(prompt.contains("get_operation"))
+    assert(prompt.contains("operation-1"))
+    assert(prompt.contains("Do not execute SQL"))
   }
 
   test("MCP diagnostic projections exclude statements, configuration and credentials") {
