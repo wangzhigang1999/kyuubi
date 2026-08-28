@@ -117,6 +117,8 @@ private[mcp] object KyuubiMcpCatalog {
       |  Administrator-only tools say so in their descriptions.
       |- Cluster responses can be partial. Inspect `partial`, `failedServers`, `discoveredServers`,
       |  `respondedServers`, and `observedAt` before drawing conclusions.
+      |- HTTP requests are capped at 64 KiB, responses at 1 MiB, concurrent requests at 64, and
+      |  each request at 15 seconds. Cluster fan-out has a stricter 5-second deadline.
       |- Identifiers come from list tools. An absent resource and an inaccessible resource share the
       |  same public error to avoid disclosing another user's activity.
       |- Log reads are bounded. The public interface never accepts an arbitrary filesystem path.

@@ -122,6 +122,12 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
   }
 
   test("MCP transport rejects invalid requests without exposing a stack trace") {
+    val getResponse = webTarget.path("/mcp").request().get()
+    assert(getResponse.getStatus === 405)
+    val getError = getResponse.readEntity(classOf[String])
+    assert(getError.contains("\"code\":-32600"))
+    assert(getResponse.getMediaType.toString.startsWith("application/json"))
+
     val invalidAcceptResponse = webTarget.path("/mcp").request()
       .accept("text/plain")
       .post(Entity.json("""{"jsonrpc":"2.0","id":4,"method":"tools/list"}"""))
