@@ -1,18 +1,18 @@
 <!--
-  Licensed to the Apache Software Foundation (ASF) under one or more
-  contributor license agreements. See the NOTICE file distributed with
-  this work for additional information regarding copyright ownership.
-  The ASF licenses this file to You under the Apache License, Version 2.0
-  (the "License"); you may not use this file except in compliance with
-  the License. You may obtain a copy of the License at
+Licensed to the Apache Software Foundation (ASF) under one or more
+contributor license agreements. See the NOTICE file distributed with
+this work for additional information regarding copyright ownership.
+The ASF licenses this file to You under the Apache License, Version 2.0
+(the "License"); you may not use this file except in compliance with
+the License. You may obtain a copy of the License at
 
-     http://www.apache.org/licenses/LICENSE-2.0
+http://www.apache.org/licenses/LICENSE-2.0
 
-  Unless required by applicable law or agreed to in writing, software
-  distributed under the License is distributed on an "AS IS" BASIS,
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  See the License for the specific language governing permissions and
-  limitations under the License.
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
 -->
 
 # MCP Server
@@ -76,19 +76,19 @@ node as empty.
 
 ## Tools
 
-| Tool | Scope | Purpose |
-| --- | --- | --- |
-| `get_cluster_overview` | User; administrator may select a user | Summarize reachable servers and live session and operation states |
-| `list_servers` | Administrator | Verify every discovered Kyuubi Server is reachable |
-| `get_server_runtime` | Administrator | Inspect a fixed projection of JVM, heap, thread, uptime, processor, and load metrics |
-| `list_engines` | User; administrator may select a user | List live engines from Kyuubi service discovery |
-| `list_sessions` | Owner; administrator may select a user | List live sessions with bounded filters |
-| `get_session` | Owner or administrator | Find one live session on any server |
-| `list_operations` | Owner; administrator may select a user | List live operations with session and state filters |
-| `get_operation` | Owner or administrator | Find one live operation on any server |
-| `read_operation_log` | Owner or administrator | Read bounded, redacted lines from one live operation log |
-| `list_server_logs` | Administrator | List allowlisted server logs on all reachable nodes using opaque IDs |
-| `read_server_log` | Administrator | Read a bounded, redacted tail using an opaque ID |
+|          Tool          |                 Scope                  |                                       Purpose                                        |
+|------------------------|----------------------------------------|--------------------------------------------------------------------------------------|
+| `get_cluster_overview` | User; administrator may select a user  | Summarize reachable servers and live session and operation states                    |
+| `list_servers`         | Administrator                          | Verify every discovered Kyuubi Server is reachable                                   |
+| `get_server_runtime`   | Administrator                          | Inspect a fixed projection of JVM, heap, thread, uptime, processor, and load metrics |
+| `list_engines`         | User; administrator may select a user  | List live engines from Kyuubi service discovery                                      |
+| `list_sessions`        | Owner; administrator may select a user | List live sessions with bounded filters                                              |
+| `get_session`          | Owner or administrator                 | Find one live session on any server                                                  |
+| `list_operations`      | Owner; administrator may select a user | List live operations with session and state filters                                  |
+| `get_operation`        | Owner or administrator                 | Find one live operation on any server                                                |
+| `read_operation_log`   | Owner or administrator                 | Read bounded, redacted lines from one live operation log                             |
+| `list_server_logs`     | Administrator                          | List allowlisted server logs on all reachable nodes using opaque IDs                 |
+| `read_server_log`      | Administrator                          | Read a bounded, redacted tail using an opaque ID                                     |
 
 All tools are annotated as read-only, idempotent, non-destructive, and closed-world. List and read
 parameters have schema-enforced limits. Identifiers should come from a preceding list call. Missing
