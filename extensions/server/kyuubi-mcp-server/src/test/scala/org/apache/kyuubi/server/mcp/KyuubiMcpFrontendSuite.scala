@@ -119,6 +119,21 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     val malformedResponse = call("{")
     assert(malformedResponse.getStatus === 400)
     assert(!malformedResponse.readEntity(classOf[String]).contains("stackTrace"))
+
+    val unknownMethodResponse = call(
+      """{"jsonrpc":"2.0","id":7,"method":"server/discover","params":{}}""")
+    assert(unknownMethodResponse.getStatus === 404)
+    val unknownMethod = unknownMethodResponse.readEntity(classOf[String])
+    assert(unknownMethod.contains("\"code\":-32601"))
+    assert(!unknownMethod.contains("stackTrace"))
+
+    val oversizedResponse = call(
+      """{"jsonrpc":"2.0","id":8,"method":"tools/list","params":{"padding":""" +
+        ("x" * (64 * 1024)) + "\"}}")
+    assert(oversizedResponse.getStatus === 400)
+    val oversized = oversizedResponse.readEntity(classOf[String])
+    assert(oversized.contains("\"code\":-32600"))
+    assert(!oversized.contains("padding"))
   }
 
   test("MCP advertises its read-only diagnostic contract, resources and prompts") {

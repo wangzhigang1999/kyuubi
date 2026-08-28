@@ -27,6 +27,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
 import java.util.function.Supplier;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -42,10 +43,13 @@ public final class KyuubiMcpHttpTransport extends HttpServlet
   private static final Logger LOG = LoggerFactory.getLogger(KyuubiMcpHttpTransport.class);
   private static final String APPLICATION_JSON = "application/json";
   private static final String TEXT_EVENT_STREAM = "text/event-stream";
-  private static final int MAX_REQUEST_CHARACTERS = 1024 * 1024;
+  private static final int MAX_REQUEST_CHARACTERS = 64 * 1024;
+  private static final int MAX_CONCURRENT_REQUESTS = 64;
+  private static final int TOO_MANY_REQUESTS = 429;
 
   private final McpJsonMapper jsonMapper;
   private final Supplier<McpTransportContext> contextSupplier;
+  private final Semaphore requestPermits = new Semaphore(MAX_CONCURRENT_REQUESTS);
 
   private volatile McpStatelessServerHandler handler;
   private volatile boolean closing;
@@ -102,6 +106,15 @@ public final class KyuubiMcpHttpTransport extends HttpServlet
       return;
     }
 
+    if (!requestPermits.tryAcquire()) {
+      writeError(
+          response,
+          TOO_MANY_REQUESTS,
+          McpSchema.ErrorCodes.INTERNAL_ERROR,
+          "Too many concurrent MCP requests");
+      return;
+    }
+
     try {
       McpSchema.JSONRPCMessage message =
           McpSchema.deserializeJsonRpcMessage(jsonMapper, readBody(request));
@@ -113,7 +126,12 @@ public final class KyuubiMcpHttpTransport extends HttpServlet
                 .contextWrite(
                     reactorContext -> reactorContext.put(McpTransportContext.KEY, context))
                 .block();
-        response.setStatus(HttpServletResponse.SC_OK);
+        if (rpcResponse.error() != null
+            && rpcResponse.error().code().intValue() == McpSchema.ErrorCodes.METHOD_NOT_FOUND) {
+          response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+        } else {
+          response.setStatus(HttpServletResponse.SC_OK);
+        }
         writeJson(response, rpcResponse);
       } else if (message instanceof McpSchema.JSONRPCNotification) {
         handler
@@ -141,6 +159,8 @@ public final class KyuubiMcpHttpTransport extends HttpServlet
           HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
           McpSchema.ErrorCodes.INTERNAL_ERROR,
           "Failed to handle MCP message");
+    } finally {
+      requestPermits.release();
     }
   }
 
