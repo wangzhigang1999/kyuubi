@@ -108,6 +108,34 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
     aggregateLookup(READ_OPERATION_LOG, arguments, principal, "operationLog")
   }
 
+  def listServerLogs(
+      arguments: Map[String, AnyRef],
+      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+    val limit = boundedIntArgument(arguments, "limit", 100, 200)
+    val fanout = executeAcrossCluster(LIST_SERVER_LOGS, arguments, principal)
+    val items = fanout.responses.flatMap(response => listValues(response.payload, "items"))
+      .sortBy(item => Option(item.get("lastModified")).map(_.toString).getOrElse(""))
+      .reverse
+      .take(limit)
+    val enabledServers = fanout.responses.count(response =>
+      java.lang.Boolean.TRUE == response.payload.get("enabled"))
+    envelope(
+      Map[String, Object](
+        "serverLogs" -> items.asJava,
+        "count" -> Int.box(items.size),
+        "enabledServers" -> Int.box(enabledServers)),
+      fanout)
+  }
+
+  def readServerLog(
+      arguments: Map[String, AnyRef],
+      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+    requiredStringArgument(arguments, "log_id")
+    boundedIntArgument(arguments, "max_lines", 200, 1000)
+    boundedIntArgument(arguments, "max_bytes", 64 * 1024, 256 * 1024)
+    aggregateLookup(READ_SERVER_LOG, arguments, principal, "serverLog")
+  }
+
   def close(): Unit = ThreadUtils.shutdown(executor)
 
   private def aggregateList(
@@ -118,16 +146,7 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
       identifierName: String,
       limit: Int): java.util.Map[String, Object] = {
     val fanout = executeAcrossCluster(action, arguments, principal)
-    val items = fanout.responses.flatMap { response =>
-      Option(response.payload.get("items")) match {
-        case Some(values: java.util.List[_]) =>
-          values.asScala.collect {
-            case value: java.util.Map[_, _] =>
-              value.asInstanceOf[java.util.Map[String, Object]]
-          }
-        case _ => Seq.empty
-      }
-    }
+    val items = fanout.responses.flatMap(response => listValues(response.payload, "items"))
       .groupBy(item => Option(item.get(identifierName)).map(_.toString).getOrElse(""))
       .values
       .map(_.head)
@@ -283,6 +302,16 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
     case number: Number => number.longValue()
     case null => 0L
     case other => other.toString.toLong
+  }
+
+  private def listValues(
+      value: java.util.Map[String, Object],
+      name: String): Seq[java.util.Map[String, Object]] = Option(value.get(name)) match {
+    case Some(values: java.util.List[_]) => values.asScala.collect {
+        case item: java.util.Map[_, _] =>
+          item.asInstanceOf[java.util.Map[String, Object]]
+      }
+    case _ => Seq.empty
   }
 
   private def intValue(value: java.util.Map[String, Object], name: String): Int =

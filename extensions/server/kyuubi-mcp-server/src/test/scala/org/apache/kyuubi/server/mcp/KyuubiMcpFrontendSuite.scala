@@ -17,12 +17,14 @@
 
 package org.apache.kyuubi.server.mcp
 
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import javax.servlet.http.HttpServletResponse
 import javax.ws.rs.client.Entity
 
 import scala.collection.JavaConverters._
 
-import org.apache.kyuubi.{RestClientTestHelper, RestFrontendTestHelper}
+import org.apache.kyuubi.{RestClientTestHelper, RestFrontendTestHelper, Utils}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.server.http.util.HttpAuthUtils.AUTHORIZATION_HEADER
@@ -139,7 +141,7 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
       """{"jsonrpc":"2.0","id":13,"method":"prompts/list","params":{}}""")
     assert(promptsResponse.getStatus === 200)
     val prompts = promptsResponse.readEntity(classOf[String])
-    Seq("check_cluster_health", "diagnose_operation", "diagnose_engine_startup")
+    Seq("check_cluster_health", "diagnose_operation", "diagnose_engine_startup", "diagnose_server")
       .foreach(name => assert(prompts.contains(name)))
 
     val promptResponse = call(
@@ -166,6 +168,13 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(session.keySet().asScala === Set("identifier", "user"))
     val operation = KyuubiMcpLocalDiagnostics.safeOperationProjection(source)
     assert(operation.keySet().asScala === Set("identifier", "state"))
+
+    val logLine = "password=secret Bearer ey.secret token:another jdbc://user:pass@host"
+    val redacted = KyuubiMcpLogSandbox.redact(logLine)
+    assert(!redacted.contains("secret"))
+    assert(!redacted.contains("another"))
+    assert(!redacted.contains("user:pass"))
+    assert(redacted.contains("[REDACTED]"))
   }
 
   private def call(body: String) = webTarget.path("/mcp").request()
@@ -192,6 +201,15 @@ class KyuubiMcpFrontendAuthenticationSuite extends RestFrontendTestHelper {
     val validCredentials = call(body, Some(basicAuthorizationHeader("user", "password")))
     assert(validCredentials.getStatus === HttpServletResponse.SC_OK)
     assert(validCredentials.readEntity(classOf[String]).contains("\"name\":\"list_servers\""))
+
+    val serverLogs = call(
+      """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":""" +
+        """"list_server_logs","arguments":{}}}""",
+      Some(basicAuthorizationHeader("user", "password")))
+    assert(serverLogs.getStatus === HttpServletResponse.SC_OK)
+    val denied = serverLogs.readEntity(classOf[String])
+    assert(denied.contains("\"isError\":true"))
+    assert(denied.contains("administrator"))
   }
 
   private def call(body: String, authorization: Option[String] = None) = {
@@ -200,6 +218,74 @@ class KyuubiMcpFrontendAuthenticationSuite extends RestFrontendTestHelper {
     authorization.foreach(request.header(AUTHORIZATION_HEADER, _))
     request.post(Entity.json(body))
   }
+}
+
+class KyuubiMcpServerLogSuite extends RestFrontendTestHelper {
+
+  private val logRoot = Files.createTempDirectory("kyuubi-mcp-server-logs")
+  private val outsideLog = Files.createTempFile("kyuubi-mcp-outside", ".log")
+  private val allowedLog = logRoot.resolve("kyuubi-server.log")
+  private val deniedFile = logRoot.resolve("credentials.txt")
+  Files.write(
+    allowedLog,
+    Seq(
+      "server started",
+      "password=top-secret",
+      "Authorization: Bearer abc.def.ghi",
+      "query failed safely").mkString("\n").getBytes(StandardCharsets.UTF_8))
+  Files.write(deniedFile, "must not be visible".getBytes(StandardCharsets.UTF_8))
+  Files.write(outsideLog, "must not be reachable".getBytes(StandardCharsets.UTF_8))
+  Files.createSymbolicLink(logRoot.resolve("outside.log"), outsideLog)
+
+  override protected lazy val conf: KyuubiConf = KyuubiConf()
+    .set(AUTHENTICATION_METHOD, Seq("NONE"))
+    .set(FRONTEND_MCP_ENABLED, true)
+    .set(FRONTEND_MCP_SERVER_LOG_DIRECTORIES, Seq(logRoot.toString))
+
+  test("MCP server logs stay inside configured roots and redact credentials") {
+    val listResponse = call(
+      """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":""" +
+        """"list_server_logs","arguments":{}}}""")
+    assert(listResponse.getStatus === 200)
+    val listed = listResponse.readEntity(classOf[String])
+    assert(listed.contains("kyuubi-server.log"))
+    assert(!listed.contains("credentials.txt"))
+    assert(!listed.contains("outside.log"))
+    assert(!listed.contains(logRoot.toString))
+    val logId = "\"logId\":\"([^\"]+)\"".r.findFirstMatchIn(listed).get.group(1)
+
+    val readResponse = call(
+      s"""{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":""" +
+        s""""read_server_log","arguments":{"log_id":"$logId","max_lines":3}}}""")
+    assert(readResponse.getStatus === 200)
+    val content = readResponse.readEntity(classOf[String])
+    assert(content.contains("query failed safely"))
+    assert(content.contains("[REDACTED]"))
+    assert(!content.contains("top-secret"))
+    assert(!content.contains("abc.def.ghi"))
+    assert(content.contains("\"truncated\":true"))
+
+    val forgedResponse = call(
+      """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":""" +
+        """"read_server_log","arguments":{"log_id":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}}""")
+    assert(forgedResponse.getStatus === 200)
+    val forged = forgedResponse.readEntity(classOf[String])
+    assert(forged.contains("\"isError\":true"))
+    assert(forged.contains("does not exist or is not accessible"))
+  }
+
+  override def afterAll(): Unit = {
+    try {
+      super.afterAll()
+    } finally {
+      Utils.deleteDirectoryRecursively(logRoot.toFile)
+      Files.deleteIfExists(outsideLog)
+    }
+  }
+
+  private def call(body: String) = webTarget.path("/mcp").request()
+    .accept("application/json", "text/event-stream")
+    .post(Entity.json(body))
 }
 
 class KyuubiMcpFrontendLdapAuthenticationSuite extends RestClientTestHelper {

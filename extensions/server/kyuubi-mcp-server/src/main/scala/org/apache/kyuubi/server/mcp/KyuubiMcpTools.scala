@@ -140,6 +140,37 @@ private[mcp] class KyuubiMcpTools(
         lookupResult(
           clusterDiagnostics.readOperationLog(arguments, principal(context)),
           "operationLog")
+    },
+    tool(
+      LIST_SERVER_LOGS,
+      "List allowlisted Kyuubi Server log files on every cluster node. Administrators only.",
+      properties = Map(
+        "contains" -> literalProperty("Literal case-insensitive file name filter."),
+        "limit" -> integerProperty("Maximum cluster-wide results.", 200))) {
+      (context, arguments) =>
+        if (!isAdministrator(context)) {
+          accessDenied("Listing Kyuubi Server logs requires administrator permission.")
+        } else {
+          success(clusterDiagnostics.listServerLogs(arguments, principal(context)))
+        }
+    },
+    tool(
+      READ_SERVER_LOG,
+      "Read a bounded, redacted tail of an allowlisted server log. Administrators only.",
+      properties = Map(
+        "log_id" -> opaqueLogIdProperty,
+        "max_lines" -> integerProperty("Maximum returned log lines.", 1000),
+        "max_bytes" -> integerProperty("Maximum bytes scanned from the file tail.", 256 * 1024),
+        "contains" -> literalProperty("Literal case-insensitive line filter.")),
+      required = Seq("log_id")) {
+      (context, arguments) =>
+        if (!isAdministrator(context)) {
+          accessDenied("Reading Kyuubi Server logs requires administrator permission.")
+        } else {
+          lookupResult(
+            clusterDiagnostics.readServerLog(arguments, principal(context)),
+            "serverLog")
+        }
     })
 
   def close(): Unit = clusterDiagnostics.close()
@@ -377,6 +408,19 @@ private[mcp] object KyuubiMcpTools {
       "minLength" -> Int.box(1),
       "maxLength" -> Int.box(128),
       "pattern" -> "^[A-Za-z0-9_-]+$").asJava
+
+  private def literalProperty(description: String): Object =
+    Map[String, Object](
+      "type" -> "string",
+      "description" -> description,
+      "minLength" -> Int.box(1),
+      "maxLength" -> Int.box(128)).asJava
+
+  private def opaqueLogIdProperty: Object =
+    Map[String, Object](
+      "type" -> "string",
+      "description" -> "Opaque identifier returned by list_server_logs.",
+      "pattern" -> "^[A-Za-z0-9_-]{43}$").asJava
 
   private def enumProperty(description: String, values: Seq[String]): Object =
     Map[String, Object](

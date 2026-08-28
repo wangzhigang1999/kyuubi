@@ -45,6 +45,8 @@ private[server] class KyuubiMcpLocalDiagnostics(
 
   import KyuubiMcpLocalDiagnostics._
 
+  private val logSandbox = new KyuubiMcpLogSandbox(frontendService)
+
   def execute(
       action: String,
       arguments: Map[String, AnyRef],
@@ -55,6 +57,8 @@ private[server] class KyuubiMcpLocalDiagnostics(
     case LIST_OPERATIONS => listOperations(arguments, principal)
     case GET_OPERATION => getOperation(arguments, principal)
     case READ_OPERATION_LOG => readOperationLog(arguments, principal)
+    case LIST_SERVER_LOGS => logSandbox.list(arguments, principal)
+    case READ_SERVER_LOG => logSandbox.read(arguments, principal)
     case _ => throw new IllegalArgumentException(s"Unsupported diagnostic action: $action")
   }
 
@@ -225,6 +229,8 @@ private[server] object KyuubiMcpLocalDiagnostics {
   val LIST_OPERATIONS = "list_operations"
   val GET_OPERATION = "get_operation"
   val READ_OPERATION_LOG = "read_operation_log"
+  val LIST_SERVER_LOGS = "list_server_logs"
+  val READ_SERVER_LOG = "read_server_log"
 
   private val MAP_TYPE = new TypeReference[java.util.Map[String, Object]]() {}
   private val SAFE_SESSION_FIELDS = Seq(

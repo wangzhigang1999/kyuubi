@@ -77,7 +77,14 @@ private[mcp] class KyuubiMcpCatalog {
           "and read the relevant operation log. Correlate engine identifiers, states, " +
           "timestamps, and " +
           "log evidence. Report partial cluster responses. Do not submit or cancel work."
-      }))
+      }),
+    prompt(
+      "diagnose_server",
+      "Investigate an unhealthy Kyuubi Server using cluster state and allowlisted logs.",
+      Seq.empty,
+      "Call get_cluster_overview first and inspect partial and failedServers. Administrators may " +
+        "then call list_server_logs and read_server_log for relevant opaque log IDs. Use bounded " +
+        "literal filters to narrow evidence. Do not request filesystem paths or expose secrets."))
 }
 
 private[mcp] object KyuubiMcpCatalog {
@@ -107,6 +114,10 @@ private[mcp] object KyuubiMcpCatalog {
       |- Identifiers come from list tools. An absent resource and an inaccessible resource share the
       |  same public error to avoid disclosing another user's activity.
       |- Log reads are bounded. The public interface never accepts an arbitrary filesystem path.
+      |- Server logs are disabled until administrators configure canonical allowlisted roots.
+      |  Only regular `.log`, `.out`, and `.err` files are enabled by default; symbolic links are
+      |  never followed. Server logs use opaque IDs, bounded tail reads, literal filters, and
+      |  mandatory credential redaction.
       |
       |Use list tools to narrow the scope, detail tools for one stable identifier, and log tools
       |only when state and timing metadata are insufficient.
