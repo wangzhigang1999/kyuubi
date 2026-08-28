@@ -17,13 +17,15 @@
 
 package org.apache.kyuubi.server
 
-import java.util.EnumSet
+import java.util.{EnumSet, ServiceLoader}
 import java.util.concurrent.{Future, TimeUnit}
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
 import java.util.concurrent.locks.ReentrantLock
 import javax.servlet.DispatcherType
 import javax.ws.rs.WebApplicationException
 import javax.ws.rs.core.Response.Status
+
+import scala.collection.JavaConverters._
 
 import com.google.common.annotations.VisibleForTesting
 import org.apache.hadoop.conf.Configuration
@@ -37,6 +39,7 @@ import org.apache.kyuubi.metrics.MetricsConstants.OPERATION_BATCH_PENDING_MAX_EL
 import org.apache.kyuubi.operation.OperationState
 import org.apache.kyuubi.server.api.v1.{ApiRootResource, DataAgentResource}
 import org.apache.kyuubi.server.http.authentication.{AuthenticationFilter, KyuubiHttpAuthenticationFactory}
+import org.apache.kyuubi.server.mcp.{KyuubiMcpFrontend, KyuubiMcpFrontendProvider}
 import org.apache.kyuubi.server.ui.{JettyServer, JettyUtils}
 import org.apache.kyuubi.service.{AbstractFrontendService, Serverable, Service, ServiceUtils}
 import org.apache.kyuubi.service.authentication.{AuthTypes, AuthUtils}
@@ -68,6 +71,29 @@ class KyuubiRestFrontendService(override val serverable: Serverable)
       None
     }
 
+  private lazy val mcpFrontend: Option[KyuubiMcpFrontend] = {
+    if (!conf.get(FRONTEND_MCP_ENABLED)) {
+      None
+    } else {
+      val javaVersion = System.getProperty("java.specification.version").split("\\.").last.toInt
+      if (javaVersion < 17) {
+        throw new IllegalArgumentException(
+          s"${FRONTEND_MCP_ENABLED.key} requires Java 17 or later")
+      }
+      val providers =
+        ServiceLoader.load(classOf[KyuubiMcpFrontendProvider]).iterator().asScala.toSeq
+      providers match {
+        case Seq(provider) => Some(provider.create(this))
+        case Seq() =>
+          throw new IllegalArgumentException(
+            s"${FRONTEND_MCP_ENABLED.key} requires the kyuubi-mcp-server module")
+        case _ =>
+          throw new IllegalArgumentException(
+            s"${FRONTEND_MCP_ENABLED.key} found multiple MCP frontend providers")
+      }
+    }
+  }
+
   lazy val host: String = conf.get(FRONTEND_REST_BIND_HOST)
     .getOrElse {
       if (JavaUtils.isWindows || JavaUtils.isMac) {
@@ -96,6 +122,7 @@ class KyuubiRestFrontendService(override val serverable: Serverable)
 
   override def initialize(conf: KyuubiConf): Unit = synchronized {
     this.conf = conf
+    mcpFrontend
     server = JettyServer(
       getName,
       host,
@@ -123,6 +150,11 @@ class KyuubiRestFrontendService(override val serverable: Serverable)
     server.addHandler(authenticationFactory.httpHandlerWrapperFactory.wrapHandler(
       contextHandler,
       Some(MetricsConstants.JETTY_API_V1)))
+
+    mcpFrontend.foreach { frontend =>
+      server.addHandler(authenticationFactory.httpHandlerWrapperFactory.wrapHandler(
+        frontend.getHandler))
+    }
 
     val proxyHandler = ApiRootResource.getEngineUIProxyHandler(this)
     server.addHandler(authenticationFactory.httpHandlerWrapperFactory.wrapHandler(proxyHandler))
@@ -318,6 +350,7 @@ class KyuubiRestFrontendService(override val serverable: Serverable)
     ThreadUtils.shutdown(batchChecker)
     DataAgentResource.shutdown()
     if (isStarted.getAndSet(false)) {
+      mcpFrontend.foreach(_.close())
       server.stop()
     }
     super.stop()

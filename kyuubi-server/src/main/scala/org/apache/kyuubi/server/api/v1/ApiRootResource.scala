@@ -77,6 +77,9 @@ private[v1] class ApiRootResource extends ApiRequestContext {
   @Path("data-agent")
   def dataAgent: Class[DataAgentResource] = classOf[DataAgentResource]
 
+  @Path("mcp/diagnostics")
+  def mcpDiagnostics: Class[McpDiagnosticsResource] = classOf[McpDiagnosticsResource]
+
   @GET
   @Path("exception")
   @Produces(Array(MediaType.TEXT_PLAIN))

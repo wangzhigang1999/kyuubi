@@ -17,6 +17,8 @@
 
 package org.apache.kyuubi.server
 
+import javax.ws.rs.client.Entity
+
 import org.apache.kyuubi.{KYUUBI_VERSION, RestFrontendTestHelper}
 import org.apache.kyuubi.client.api.v1.dto.VersionInfo
 import org.apache.kyuubi.config.KyuubiConf
@@ -36,6 +38,12 @@ class KyuubiRestFrontendServiceSuite extends RestFrontendTestHelper {
   test("kyuubi REST frontend service http basic") {
     val resp = webTarget.path("/api/v1/ping").request().get()
     assert(resp.readEntity(classOf[String]) === "pong")
+  }
+
+  test("reject external access to the MCP diagnostic endpoint") {
+    val internalEndpointResponse = webTarget.path("/api/v1/mcp/diagnostics").request()
+      .post(Entity.json("""{"action":"list_sessions","arguments":{}}"""))
+    assert(internalEndpointResponse.getStatus === 403)
   }
 
   test("error and exception response") {

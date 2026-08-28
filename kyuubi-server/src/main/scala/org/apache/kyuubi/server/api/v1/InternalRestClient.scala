@@ -56,6 +56,7 @@ class InternalRestClient(
 
   private val internalBatchRestApi = new BatchRestApi(initKyuubiRestClient())
   private val internalBaseRestApi = new BaseRestApi(initKyuubiRestClient())
+  private val internalMcpRestClient = initKyuubiRestClient()
 
   def pingAble(user: String, clientIp: String): Boolean = withAuthUser(user) {
     Try {
@@ -92,6 +93,16 @@ class InternalRestClient(
   def deleteBatch(user: String, clientIp: String, batchId: String): CloseBatchResponse = {
     withAuthUser(user) {
       internalBatchRestApi.deleteBatch(batchId, Map(proxyClientIpHeader -> clientIp).asJava)
+    }
+  }
+
+  def executeMcpDiagnostic(user: String, clientIp: String, body: String): String = {
+    withAuthUser(user) {
+      internalMcpRestClient.getHttpClient.post(
+        "mcp/diagnostics",
+        body,
+        internalMcpRestClient.getAuthHeader,
+        Map(proxyClientIpHeader -> clientIp).asJava)
     }
   }
 

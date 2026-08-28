@@ -211,6 +211,7 @@ com.zaxxer:HikariCP
 com.google.android:annotations
 org.apache.commons:commons-lang3
 com.google.errorprone:error_prone_annotations
+com.ethlo.time:itu
 dev.failsafe:failsafe
 com.jakewharton.fliptables:fliptables
 io.grpc:grpc-api
@@ -297,6 +298,7 @@ io.prometheus:simpleclient_servlet_common
 io.prometheus:simpleclient_tracer_common
 io.prometheus:simpleclient_tracer_otel
 io.prometheus:simpleclient_tracer_otel_agent
+io.projectreactor:reactor-core
 io.swagger.core.v3:swagger-annotations
 io.swagger.core.v3:swagger-core
 io.swagger.core.v3:swagger-integration
@@ -310,6 +312,7 @@ org.xerial:sqlite-jdbc
 com.openai:openai-java
 com.github.victools:jsonschema-generator
 com.github.victools:jsonschema-module-jackson
+com.networknt:json-schema-validator
 
 BSD
 ------------
@@ -348,6 +351,12 @@ org.slf4j:slf4j-api
 org.slf4j:jcl-over-slf4j
 org.slf4j:jul-over-slf4j
 org.checkerframework:checker-qual
+io.modelcontextprotocol.sdk:mcp-core
+io.modelcontextprotocol.sdk:mcp-json-jackson2
+
+MIT No Attribution License
+--------------------------
+org.reactivestreams:reactive-streams
 
 CDDL License 1.1
 ----------------
