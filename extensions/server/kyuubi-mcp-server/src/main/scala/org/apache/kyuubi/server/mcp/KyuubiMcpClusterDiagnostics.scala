@@ -53,6 +53,25 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
     ThreadUtils.newDaemonFixedThreadPool(MAX_CONCURRENT_PEERS, "mcp-cluster-diagnostics")
   private val clients = new ConcurrentHashMap[String, InternalRestClient]()
 
+  def clusterOverview(
+      arguments: Map[String, AnyRef],
+      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+    val fanout = executeAcrossCluster(CLUSTER_OVERVIEW, arguments, principal)
+    val serverSummaries = fanout.responses.map(_.payload)
+    val sessionCount = serverSummaries.map(intValue(_, "sessionCount")).sum
+    val operationCount = serverSummaries.map(intValue(_, "operationCount")).sum
+    val sessionTypes = sumCounters(serverSummaries, "sessionTypes")
+    val operationStates = sumCounters(serverSummaries, "operationStates")
+    envelope(
+      Map[String, Object](
+        "sessionCount" -> Int.box(sessionCount),
+        "sessionTypes" -> sessionTypes.asJava,
+        "operationCount" -> Int.box(operationCount),
+        "operationStates" -> operationStates.asJava,
+        "servers" -> serverSummaries.asJava),
+      fanout)
+  }
+
   def listSessions(
       arguments: Map[String, AnyRef],
       principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
@@ -264,6 +283,23 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
     case number: Number => number.longValue()
     case null => 0L
     case other => other.toString.toLong
+  }
+
+  private def intValue(value: java.util.Map[String, Object], name: String): Int =
+    Option(value.get(name)).collect { case number: Number => number.intValue() }.getOrElse(0)
+
+  private def sumCounters(
+      values: Seq[java.util.Map[String, Object]],
+      name: String): Map[String, Integer] = {
+    values.flatMap(value =>
+      Option(value.get(name)) match {
+        case Some(counters: java.util.Map[_, _]) => counters.asScala.toSeq.collect {
+            case (key: String, count: Number) => key -> count.intValue()
+          }
+        case _ => Seq.empty
+      }).groupBy(_._1).map { case (key, counters) =>
+      key -> Int.box(counters.map(_._2).sum)
+    }
   }
 }
 

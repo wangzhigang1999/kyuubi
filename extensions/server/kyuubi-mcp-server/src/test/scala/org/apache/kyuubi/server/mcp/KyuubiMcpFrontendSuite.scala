@@ -40,6 +40,7 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(response.getStatus === 200)
     val tools = response.readEntity(classOf[String])
     Seq(
+      "get_cluster_overview",
       "list_servers",
       "list_engines",
       "list_sessions",
@@ -49,9 +50,20 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
       "read_operation_log").foreach(tool => assert(tools.contains("\"name\":\"" + tool + "\"")))
     assert(!tools.contains("execute_sql"))
     assert(!tools.contains("submit_batch"))
+    assert(tools.contains("\"maximum\":200"))
+    assert(tools.contains("\"pattern\":\"^[A-Za-z0-9_-]+$\""))
+
+    val overviewResponse = call(
+      """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":""" +
+        """"get_cluster_overview","arguments":{}}}""")
+    assert(overviewResponse.getStatus === 200)
+    val overview = overviewResponse.readEntity(classOf[String])
+    assert(overview.contains("\"sessionCount\":0"))
+    assert(overview.contains("\"operationCount\":0"))
+    assert(overview.contains("\"partial\":false"))
 
     val callResponse = call(
-      """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_sessions",""" +
+      """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_sessions",""" +
         """"arguments":{}}}""")
     assert(callResponse.getStatus === 200)
     val callResult = callResponse.readEntity(classOf[String])
@@ -62,12 +74,27 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(callResult.contains("\"respondedServers\":1"))
 
     val missingArgumentResponse = call(
-      """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_session",""" +
+      """{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_session",""" +
         """"arguments":{}}}""")
     assert(missingArgumentResponse.getStatus === 200)
     val missingArgumentResult = missingArgumentResponse.readEntity(classOf[String])
     assert(missingArgumentResult.contains("\"isError\":true"))
     assert(missingArgumentResult.contains("session_id"))
+
+    val invalidLimitResponse = call(
+      """{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"list_sessions",""" +
+        """"arguments":{"limit":201}}}""")
+    assert(invalidLimitResponse.getStatus === 200)
+    val invalidLimit = invalidLimitResponse.readEntity(classOf[String])
+    assert(invalidLimit.contains("\"isError\":true"))
+
+    val unknownArgumentResponse = call(
+      """{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"list_sessions",""" +
+        """"arguments":{"path":"/etc/passwd"}}}""")
+    assert(unknownArgumentResponse.getStatus === 200)
+    val unknownArgument = unknownArgumentResponse.readEntity(classOf[String])
+    assert(unknownArgument.contains("\"isError\":true"))
+    assert(unknownArgument.contains("path"))
   }
 
   test("MCP transport rejects invalid requests without exposing a stack trace") {

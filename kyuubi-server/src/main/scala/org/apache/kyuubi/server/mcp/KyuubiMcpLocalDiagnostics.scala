@@ -49,12 +49,44 @@ private[server] class KyuubiMcpLocalDiagnostics(
       action: String,
       arguments: Map[String, AnyRef],
       principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = action match {
+    case CLUSTER_OVERVIEW => clusterOverview(arguments, principal)
     case LIST_SESSIONS => listSessions(arguments, principal)
     case GET_SESSION => getSession(arguments, principal)
     case LIST_OPERATIONS => listOperations(arguments, principal)
     case GET_OPERATION => getOperation(arguments, principal)
     case READ_OPERATION_LOG => readOperationLog(arguments, principal)
     case _ => throw new IllegalArgumentException(s"Unsupported diagnostic action: $action")
+  }
+
+  private def clusterOverview(
+      arguments: Map[String, AnyRef],
+      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+    val requestedUser = stringArgument(arguments, "user")
+    if (requestedUser.exists(_ != principal.realUser) && !principal.administrator) {
+      throw new IllegalArgumentException("The requested user is not accessible.")
+    }
+    val sessions = frontendService.sessionManager.allSessions()
+      .collect { case session: KyuubiSession => session }
+      .filter(session => canAccess(principal, session.user))
+      .filter(session => requestedUser.forall(_ == session.user))
+      .toSeq
+    val operations = frontendService.sessionManager.operationManager.allOperations()
+      .collect { case operation: KyuubiOperation => operation }
+      .filter(operation => canAccess(principal, operation.getSession.user))
+      .filter(operation => requestedUser.forall(_ == operation.getSession.user))
+      .toSeq
+    val operationStates = operations.groupBy(_.getStatus.toString).map { case (state, values) =>
+      state -> Int.box(values.size)
+    }.asJava
+    val sessionTypes = sessions.groupBy(_.sessionType.toString).map { case (sessionType, values) =>
+      sessionType -> Int.box(values.size)
+    }.asJava
+    Map[String, Object](
+      "server" -> frontendService.connectionUrl,
+      "sessionCount" -> Int.box(sessions.size),
+      "sessionTypes" -> sessionTypes,
+      "operationCount" -> Int.box(operations.size),
+      "operationStates" -> operationStates).asJava
   }
 
   private def listSessions(
@@ -187,6 +219,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
 }
 
 private[server] object KyuubiMcpLocalDiagnostics {
+  val CLUSTER_OVERVIEW = "get_cluster_overview"
   val LIST_SESSIONS = "list_sessions"
   val GET_SESSION = "get_session"
   val LIST_OPERATIONS = "list_operations"

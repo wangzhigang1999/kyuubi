@@ -34,11 +34,13 @@ import io.modelcontextprotocol.spec.McpSchema
 import org.apache.kyuubi.{KYUUBI_VERSION, Logging}
 import org.apache.kyuubi.client.api.v1.dto.Engine
 import org.apache.kyuubi.config.KyuubiConf._
+import org.apache.kyuubi.engine.{EngineType, ShareLevel}
 import org.apache.kyuubi.ha.HighAvailabilityConf.HA_NAMESPACE
 import org.apache.kyuubi.ha.client.{DiscoveryPaths, ServiceDiscovery, ServiceNodeInfo}
 import org.apache.kyuubi.ha.client.DiscoveryClientProvider.withDiscoveryClient
+import org.apache.kyuubi.operation.OperationState
 import org.apache.kyuubi.server.KyuubiRestFrontendService
-import org.apache.kyuubi.server.api.ApiUtils
+import org.apache.kyuubi.session.SessionType
 
 private[mcp] class KyuubiMcpTools(
     frontendService: KyuubiRestFrontendService,
@@ -53,6 +55,16 @@ private[mcp] class KyuubiMcpTools(
     new KyuubiMcpClusterDiagnostics(frontendService, objectMapper)
 
   def specifications: Seq[McpStatelessServerFeatures.SyncToolSpecification] = Seq(
+    tool(
+      CLUSTER_OVERVIEW,
+      "Summarize server reachability and live session and operation health across the cluster.",
+      properties = Map(
+        "user" -> boundedStringProperty("User to inspect. Administrators only."))) {
+      (context, arguments) =>
+        clusterListResult(context, arguments) {
+          clusterDiagnostics.clusterOverview(arguments, principal(context))
+        }
+    },
     tool("list_servers", "List the live Kyuubi Server instances discovered by this cluster.") {
       (context, _) => listServers(context)
     },
@@ -60,19 +72,23 @@ private[mcp] class KyuubiMcpTools(
       "list_engines",
       "List live Kyuubi engines visible to the authenticated user across the cluster.",
       properties = Map(
-        "user" -> stringProperty("User to inspect. Administrators only."),
-        "engine_type" -> stringProperty("Engine type such as SPARK_SQL."),
-        "share_level" -> stringProperty("Engine share level such as USER or GROUP."),
-        "subdomain" -> stringProperty("Optional engine share-level subdomain."))) {
+        "user" -> boundedStringProperty("User to inspect. Administrators only."),
+        "engine_type" -> enumProperty("Engine type.", EngineType.values.map(_.toString).toSeq),
+        "share_level" -> enumProperty(
+          "Engine share level.",
+          ShareLevel.values.map(_.toString).toSeq),
+        "subdomain" -> boundedStringProperty("Engine share-level subdomain."))) {
       (context, arguments) => listEngines(context, arguments)
     },
     tool(
       LIST_SESSIONS,
       "List live sessions visible to the authenticated user across the cluster.",
       properties = Map(
-        "user" -> stringProperty("User to inspect. Administrators only."),
-        "session_type" -> stringProperty("Optional session type filter."),
-        "limit" -> integerProperty("Maximum cluster-wide results, from 1 to 200."))) {
+        "user" -> boundedStringProperty("User to inspect. Administrators only."),
+        "session_type" -> enumProperty(
+          "Session type.",
+          SessionType.values.map(_.toString).toSeq),
+        "limit" -> integerProperty("Maximum cluster-wide results.", 200))) {
       (context, arguments) =>
         clusterListResult(context, arguments) {
           clusterDiagnostics.listSessions(arguments, principal(context))
@@ -81,7 +97,7 @@ private[mcp] class KyuubiMcpTools(
     tool(
       GET_SESSION,
       "Get a live session by its stable identifier from any server in the cluster.",
-      properties = Map("session_id" -> stringProperty("Kyuubi session identifier.")),
+      properties = Map("session_id" -> identifierProperty("Kyuubi session identifier.")),
       required = Seq("session_id")) {
       (context, arguments) =>
         lookupResult(
@@ -92,10 +108,12 @@ private[mcp] class KyuubiMcpTools(
       LIST_OPERATIONS,
       "List live operations visible to the authenticated user across the cluster.",
       properties = Map(
-        "user" -> stringProperty("User to inspect. Administrators only."),
-        "session_id" -> stringProperty("Optional session identifier filter."),
-        "state" -> stringProperty("Optional operation state filter."),
-        "limit" -> integerProperty("Maximum cluster-wide results, from 1 to 200."))) {
+        "user" -> boundedStringProperty("User to inspect. Administrators only."),
+        "session_id" -> identifierProperty("Session identifier filter."),
+        "state" -> enumProperty(
+          "Operation state.",
+          OperationState.values.map(_.toString).toSeq),
+        "limit" -> integerProperty("Maximum cluster-wide results.", 200))) {
       (context, arguments) =>
         clusterListResult(context, arguments) {
           clusterDiagnostics.listOperations(arguments, principal(context))
@@ -104,7 +122,7 @@ private[mcp] class KyuubiMcpTools(
     tool(
       GET_OPERATION,
       "Get a live operation by its stable identifier from any server in the cluster.",
-      properties = Map("operation_id" -> stringProperty("Kyuubi operation identifier.")),
+      properties = Map("operation_id" -> identifierProperty("Kyuubi operation identifier.")),
       required = Seq("operation_id")) {
       (context, arguments) =>
         lookupResult(
@@ -115,8 +133,8 @@ private[mcp] class KyuubiMcpTools(
       READ_OPERATION_LOG,
       "Read a bounded portion of an accessible live operation log from any cluster server.",
       properties = Map(
-        "operation_id" -> stringProperty("Kyuubi operation identifier."),
-        "max_rows" -> integerProperty("Maximum log lines, from 1 to 1000.")),
+        "operation_id" -> identifierProperty("Kyuubi operation identifier."),
+        "max_rows" -> integerProperty("Maximum log lines.", 1000)),
       required = Seq("operation_id")) {
       (context, arguments) =>
         lookupResult(
@@ -136,7 +154,13 @@ private[mcp] class KyuubiMcpTools(
     val servers = if (discoveryEnabled) {
       val serverSpace = DiscoveryPaths.makePath(null, conf.get(HA_NAMESPACE))
       withDiscoveryClient(conf) { client =>
-        client.getServiceNodesInfo(serverSpace).map(ApiUtils.serverData).asJava
+        client.getServiceNodesInfo(serverSpace).map(node =>
+          Map[String, Object](
+            "nodeName" -> node.nodeName,
+            "instance" -> node.instance,
+            "host" -> node.host,
+            "port" -> Int.box(node.port),
+            "status" -> "Running").asJava).asJava
       }
     } else {
       Collections.singletonList(Map(
@@ -196,15 +220,13 @@ private[mcp] class KyuubiMcpTools(
       }
     }
     val engines = engineNodes.map(node =>
-      new Engine(
-        engine.getVersion,
-        engine.getUser,
-        engine.getEngineType,
-        engine.getSharelevel,
-        node.namespace.split("/").last,
-        node.instance,
-        node.namespace,
-        node.attributes.asJava)).asJava
+      Map[String, Object](
+        "version" -> engine.getVersion,
+        "user" -> engine.getUser,
+        "engineType" -> engine.getEngineType,
+        "shareLevel" -> engine.getSharelevel,
+        "subdomain" -> node.namespace.split("/").last,
+        "instance" -> node.instance).asJava).asJava
     success(engineResult(discoveryEnabled = true, engines))
   }
 
@@ -341,9 +363,31 @@ private[mcp] object KyuubiMcpTools {
     .openWorldHint(Boolean.box(false))
     .build()
 
-  private def stringProperty(description: String): Object =
-    Map("type" -> "string", "description" -> description).asJava
+  private def boundedStringProperty(description: String): Object =
+    Map[String, Object](
+      "type" -> "string",
+      "description" -> description,
+      "minLength" -> Int.box(1),
+      "maxLength" -> Int.box(256)).asJava
 
-  private def integerProperty(description: String): Object =
-    Map("type" -> "integer", "description" -> description).asJava
+  private def identifierProperty(description: String): Object =
+    Map[String, Object](
+      "type" -> "string",
+      "description" -> description,
+      "minLength" -> Int.box(1),
+      "maxLength" -> Int.box(128),
+      "pattern" -> "^[A-Za-z0-9_-]+$").asJava
+
+  private def enumProperty(description: String, values: Seq[String]): Object =
+    Map[String, Object](
+      "type" -> "string",
+      "description" -> description,
+      "enum" -> values.asJava).asJava
+
+  private def integerProperty(description: String, maximum: Int): Object =
+    Map[String, Object](
+      "type" -> "integer",
+      "description" -> description,
+      "minimum" -> Int.box(1),
+      "maximum" -> Int.box(maximum)).asJava
 }
