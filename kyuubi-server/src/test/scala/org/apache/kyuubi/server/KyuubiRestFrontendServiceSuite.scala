@@ -25,6 +25,27 @@ import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.service.authentication.AnonymousAuthenticationProviderImpl
 
+class KyuubiMcpAuthenticationConfigurationSuite extends org.apache.kyuubi.KyuubiFunSuite {
+
+  test("MCP fails closed without authenticated REST access") {
+    val conf = KyuubiConf().set(FRONTEND_MCP_ENABLED, true)
+
+    val error = intercept[IllegalArgumentException] {
+      KyuubiRestFrontendService.validateMcpAuthentication(conf, securityEnabled = false)
+    }
+    assert(error.getMessage.contains(FRONTEND_MCP_ALLOW_INSECURE_AUTHENTICATION.key))
+  }
+
+  test("MCP permits authenticated REST or explicit insecure development mode") {
+    KyuubiRestFrontendService.validateMcpAuthentication(KyuubiConf(), securityEnabled = true)
+    val developmentConf = KyuubiConf()
+      .set(FRONTEND_MCP_ALLOW_INSECURE_AUTHENTICATION, true)
+    KyuubiRestFrontendService.validateMcpAuthentication(
+      developmentConf,
+      securityEnabled = false)
+  }
+}
+
 class KyuubiRestFrontendServiceSuite extends RestFrontendTestHelper {
 
   override protected lazy val conf: KyuubiConf = KyuubiConf()

@@ -75,6 +75,7 @@ class KyuubiRestFrontendService(override val serverable: Serverable)
     if (!conf.get(FRONTEND_MCP_ENABLED)) {
       None
     } else {
+      KyuubiRestFrontendService.validateMcpAuthentication(conf, securityEnabled)
       val javaVersion = System.getProperty("java.specification.version").split("\\.").last.toInt
       if (javaVersion < 17) {
         throw new IllegalArgumentException(
@@ -404,4 +405,14 @@ class KyuubiRestFrontendService(override val serverable: Serverable)
   }
 
   override val discoveryService: Option[Service] = None
+}
+
+private[server] object KyuubiRestFrontendService {
+  def validateMcpAuthentication(conf: KyuubiConf, securityEnabled: Boolean): Unit = {
+    if (!securityEnabled && !conf.get(FRONTEND_MCP_ALLOW_INSECURE_AUTHENTICATION)) {
+      throw new IllegalArgumentException(
+        s"${FRONTEND_MCP_ENABLED.key} requires authenticated REST access; " +
+          s"${FRONTEND_MCP_ALLOW_INSECURE_AUTHENTICATION.key} is only for isolated testing")
+    }
+  }
 }

@@ -36,6 +36,7 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
   override protected lazy val conf: KyuubiConf = KyuubiConf()
     .set(AUTHENTICATION_METHOD, Seq("NONE"))
     .set(FRONTEND_MCP_ENABLED, true)
+    .set(FRONTEND_MCP_ALLOW_INSECURE_AUTHENTICATION, true)
 
   test("MCP endpoint") {
     val response = call("""{"jsonrpc":"2.0","id":1,"method":"tools/list"}""")
@@ -279,6 +280,7 @@ class KyuubiMcpServerLogSuite extends RestFrontendTestHelper {
   override protected lazy val conf: KyuubiConf = KyuubiConf()
     .set(AUTHENTICATION_METHOD, Seq("NONE"))
     .set(FRONTEND_MCP_ENABLED, true)
+    .set(FRONTEND_MCP_ALLOW_INSECURE_AUTHENTICATION, true)
     .set(FRONTEND_MCP_SERVER_LOG_DIRECTORIES, Seq(logRoot.toString))
 
   test("MCP server logs stay inside configured roots and redact credentials") {

@@ -108,6 +108,9 @@ private[mcp] object KyuubiMcpCatalog {
       |
       |## Safety boundaries
       |
+      |- Authenticated REST access is required by default. LDAP uses HTTP Basic credentials through
+      |  Kyuubi's existing authentication chain, so production endpoints must use TLS and clients
+      |  must keep the password in secret storage rather than prompts or tool arguments.
       |- It does not execute SQL, return query results, develop data jobs, or mutate workloads.
       |- User-scoped tools enforce session and operation ownership on every server.
       |  Administrator-only tools say so in their descriptions.

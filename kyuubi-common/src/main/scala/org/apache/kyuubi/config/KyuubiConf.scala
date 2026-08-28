@@ -819,6 +819,17 @@ object KyuubiConf {
       .booleanConf
       .createWithDefault(false)
 
+  val FRONTEND_MCP_ALLOW_INSECURE_AUTHENTICATION: ConfigEntry[Boolean] =
+    buildConf("kyuubi.frontend.mcp.allowInsecureAuthentication")
+      .audience(SERVER)
+      .immutable
+      .doc("Whether to allow MCP when the REST frontend uses NONE authentication. This unsafe " +
+        "option is intended only for isolated development and testing because unauthenticated " +
+        "callers are treated as Kyuubi administrators.")
+      .version("1.13.0")
+      .booleanConf
+      .createWithDefault(false)
+
   val FRONTEND_MCP_SERVER_LOG_DIRECTORIES: ConfigEntry[Seq[String]] =
     buildConf("kyuubi.frontend.mcp.server.log.directories")
       .audience(SERVER)
