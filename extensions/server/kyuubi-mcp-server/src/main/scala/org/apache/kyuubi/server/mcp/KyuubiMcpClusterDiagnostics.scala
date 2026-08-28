@@ -78,6 +78,30 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
     aggregateList(LIST_SESSIONS, arguments, principal, "sessions", "identifier", limit)
   }
 
+  def listServers(
+      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+    val fanout = executeAcrossCluster(GET_SERVER_RUNTIME, Map.empty, principal)
+    val servers = fanout.responses.map(response =>
+      Map[String, Object](
+        "instance" -> response.instance,
+        "status" -> "Running").asJava)
+    envelope(
+      Map[String, Object](
+        "servers" -> servers.asJava,
+        "count" -> Int.box(servers.size)),
+      fanout)
+  }
+
+  def serverRuntime(
+      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+    val fanout = executeAcrossCluster(GET_SERVER_RUNTIME, Map.empty, principal)
+    envelope(
+      Map[String, Object](
+        "serverRuntimes" -> fanout.responses.map(_.payload).asJava,
+        "count" -> Int.box(fanout.responses.size)),
+      fanout)
+  }
+
   def getSession(
       arguments: Map[String, AnyRef],
       principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
@@ -188,9 +212,10 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
       action: String,
       arguments: Map[String, AnyRef],
       principal: KyuubiMcpPrincipal): FanoutResult = {
-    val allInstances = discoverInstances()
+    val discovery = discoverInstances()
+    val allInstances = discovery.instances
     val instances = allInstances.take(MAX_CLUSTER_PEERS)
-    val failures = ListBuffer[PeerFailure]()
+    val failures = ListBuffer[PeerFailure]() ++ discovery.failures
     allInstances.drop(MAX_CLUSTER_PEERS).foreach(instance =>
       failures += PeerFailure(instance, "fanout limit exceeded"))
 
@@ -267,19 +292,28 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
           requestMaxAttempts = 1,
           requestAttemptWait = 0))
 
-  private def discoverInstances(): Seq[String] = {
+  private def discoverInstances(): DiscoveryResult = {
     val conf = frontendService.getConf
     val localInstance = normalizeInstance(frontendService.connectionUrl)
     if (ServiceDiscovery.supportServiceDiscovery(conf)) {
       val serverSpace = DiscoveryPaths.makePath(null, conf.get(HA_NAMESPACE))
       val restPort = conf.get(FRONTEND_REST_BIND_PORT)
-      withDiscoveryClient(conf) { client =>
-        (client.getServiceNodesInfo(serverSpace)
-          .map(node => normalizeInstance(formatHostPort(node.host, restPort)))
-          :+ localInstance).distinct.sorted
+      try {
+        val instances = withDiscoveryClient(conf) { client =>
+          (client.getServiceNodesInfo(serverSpace)
+            .map(node => normalizeInstance(formatHostPort(node.host, restPort)))
+            :+ localInstance).distinct.sorted
+        }
+        DiscoveryResult(instances, Seq.empty)
+      } catch {
+        case NonFatal(e) =>
+          debug("MCP service discovery failed; continuing with the local server", e)
+          DiscoveryResult(
+            Seq(localInstance),
+            Seq(PeerFailure("service-discovery", "unavailable")))
       }
     } else {
-      Seq(localInstance)
+      DiscoveryResult(Seq(localInstance), Seq.empty)
     }
   }
 
@@ -364,6 +398,9 @@ private[mcp] object KyuubiMcpClusterDiagnostics {
   private case class FanoutResult(
       discoveredServers: Int,
       responses: Seq[PeerResponse],
+      failures: Seq[PeerFailure])
+  private case class DiscoveryResult(
+      instances: Seq[String],
       failures: Seq[PeerFailure])
 
   private def normalizeInstance(instance: String): String =

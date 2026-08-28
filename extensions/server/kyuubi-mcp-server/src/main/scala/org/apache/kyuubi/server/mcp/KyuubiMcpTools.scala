@@ -65,8 +65,27 @@ private[mcp] class KyuubiMcpTools(
           clusterDiagnostics.clusterOverview(arguments, principal(context))
         }
     },
-    tool("list_servers", "List the live Kyuubi Server instances discovered by this cluster.") {
-      (context, _) => listServers(context)
+    tool(
+      "list_servers",
+      "List reachable Kyuubi Server instances across the cluster. Administrators only.") {
+      (context, _) =>
+        if (!isAdministrator(context)) {
+          accessDenied("Listing Kyuubi servers requires administrator permission.")
+        } else {
+          success(clusterDiagnostics.listServers(principal(context)))
+        }
+    },
+    tool(
+      GET_SERVER_RUNTIME,
+      "Inspect bounded JVM, memory, thread, uptime, and host-load metrics on every reachable " +
+        "Kyuubi Server. Administrators only.") {
+      (context, _) =>
+        if (!isAdministrator(context)) {
+          accessDenied(
+            "Inspecting Kyuubi Server runtime metrics requires administrator permission.")
+        } else {
+          success(clusterDiagnostics.serverRuntime(principal(context)))
+        }
     },
     tool(
       "list_engines",
@@ -176,38 +195,6 @@ private[mcp] class KyuubiMcpTools(
     })
 
   def close(): Unit = clusterDiagnostics.close()
-
-  private def listServers(context: McpTransportContext): McpSchema.CallToolResult = {
-    if (!isAdministrator(context)) {
-      return accessDenied("Listing Kyuubi servers requires administrator permission.")
-    }
-
-    val conf = frontendService.getConf
-    val discoveryEnabled = ServiceDiscovery.supportServiceDiscovery(conf)
-    val servers = if (discoveryEnabled) {
-      val serverSpace = DiscoveryPaths.makePath(null, conf.get(HA_NAMESPACE))
-      withDiscoveryClient(conf) { client =>
-        client.getServiceNodesInfo(serverSpace).map(node =>
-          Map[String, Object](
-            "nodeName" -> node.nodeName,
-            "instance" -> node.instance,
-            "host" -> node.host,
-            "port" -> Int.box(node.port),
-            "status" -> "Running").asJava).asJava
-      }
-    } else {
-      Collections.singletonList(Map(
-        "instance" -> frontendService.connectionUrl,
-        "status" -> "Running").asJava)
-    }
-    success(Map[String, Object](
-      "discoveryEnabled" -> Boolean.box(discoveryEnabled),
-      "servers" -> servers,
-      "count" -> Int.box(servers.size()),
-      "partial" -> Boolean.box(false),
-      "failedServers" -> Collections.emptyList[Object](),
-      "observedAt" -> Instant.now().toString).asJava)
-  }
 
   private def listEngines(
       context: McpTransportContext,

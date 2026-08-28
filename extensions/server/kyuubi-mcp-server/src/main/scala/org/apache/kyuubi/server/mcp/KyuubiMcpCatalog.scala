@@ -83,8 +83,9 @@ private[mcp] class KyuubiMcpCatalog {
       "Investigate an unhealthy Kyuubi Server using cluster state and allowlisted logs.",
       Seq.empty,
       "Call get_cluster_overview first and inspect partial and failedServers. Administrators may " +
-        "then call list_server_logs and read_server_log for relevant opaque log IDs. Use bounded " +
-        "literal filters to narrow evidence. Do not request filesystem paths or expose secrets."))
+        "then call get_server_runtime to inspect JVM pressure and list_server_logs plus " +
+        "read_server_log for relevant opaque log IDs. Use bounded literal filters to narrow " +
+        "evidence. Do not request filesystem paths or expose secrets."))
 }
 
 private[mcp] object KyuubiMcpCatalog {
@@ -123,6 +124,9 @@ private[mcp] object KyuubiMcpCatalog {
       |  Only regular `.log`, `.out`, and `.err` files are enabled by default; symbolic links are
       |  never followed. Server logs use opaque IDs, bounded tail reads, literal filters, and
       |  mandatory credential redaction.
+      |- Server runtime diagnostics expose a fixed administrator-only projection of JVM version,
+      |  uptime, memory, thread counts, processor count, and system load. JVM arguments,
+      |  environment variables, system properties, filesystem paths, and thread dumps are omitted.
       |
       |Use list tools to narrow the scope, detail tools for one stable identifier, and log tools
       |only when state and timing metadata are insufficient.

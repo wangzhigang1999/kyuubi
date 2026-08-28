@@ -45,6 +45,7 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     Seq(
       "get_cluster_overview",
       "list_servers",
+      "get_server_runtime",
       "list_engines",
       "list_sessions",
       "get_session",
@@ -72,6 +73,18 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
         case _: NoSuchMethodException => "platform_pool"
       }
     assert(overview.contains("\"fanoutMode\":\"" + expectedFanoutMode + "\""))
+
+    val runtimeResponse = call(
+      """{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":""" +
+        """"get_server_runtime","arguments":{}}}""")
+    assert(runtimeResponse.getStatus === 200)
+    val runtime = runtimeResponse.readEntity(classOf[String])
+    assert(runtime.contains("\"serverRuntimes\""))
+    assert(runtime.contains("\"heapUsedBytes\""))
+    assert(runtime.contains("\"liveThreads\""))
+    assert(runtime.contains("\"partial\":false"))
+    assert(!runtime.contains("inputArguments"))
+    assert(!runtime.contains("systemProperties"))
 
     val callResponse = call(
       """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_sessions",""" +

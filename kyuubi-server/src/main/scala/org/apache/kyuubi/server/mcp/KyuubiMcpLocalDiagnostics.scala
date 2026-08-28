@@ -17,6 +17,8 @@
 
 package org.apache.kyuubi.server.mcp
 
+import java.lang.management.ManagementFactory
+
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
 import scala.util.control.NonFatal
@@ -56,6 +58,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
     case LIST_OPERATIONS => listOperations(arguments, principal)
     case GET_OPERATION => getOperation(arguments, principal)
     case READ_OPERATION_LOG => readOperationLog(arguments, principal)
+    case GET_SERVER_RUNTIME => serverRuntime(principal)
     case LIST_SERVER_LOGS => logSandbox.list(arguments, principal)
     case READ_SERVER_LOG => logSandbox.read(arguments, principal)
     case _ => throw new IllegalArgumentException(s"Unsupported diagnostic action: $action")
@@ -199,6 +202,43 @@ private[server] class KyuubiMcpLocalDiagnostics(
     }
   }
 
+  private def serverRuntime(
+      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+    if (!principal.administrator) {
+      throw new IllegalArgumentException(
+        "Inspecting Kyuubi Server runtime metrics requires administrator permission.")
+    }
+    val runtime = Runtime.getRuntime
+    val runtimeBean = ManagementFactory.getRuntimeMXBean
+    val memory = ManagementFactory.getMemoryMXBean
+    val threads = ManagementFactory.getThreadMXBean
+    val operatingSystem = ManagementFactory.getOperatingSystemMXBean
+    val heap = memory.getHeapMemoryUsage
+    val nonHeap = memory.getNonHeapMemoryUsage
+    val values = scala.collection.mutable.Map[String, Object](
+      "server" -> frontendService.connectionUrl,
+      "kyuubiVersion" -> org.apache.kyuubi.KYUUBI_VERSION,
+      "javaVersion" -> System.getProperty("java.version"),
+      "javaVendor" -> System.getProperty("java.vendor"),
+      "vmName" -> runtimeBean.getVmName,
+      "startTime" -> Long.box(runtimeBean.getStartTime),
+      "uptimeMs" -> Long.box(runtimeBean.getUptime),
+      "availableProcessors" -> Int.box(runtime.availableProcessors()),
+      "heapUsedBytes" -> Long.box(heap.getUsed),
+      "heapCommittedBytes" -> Long.box(heap.getCommitted),
+      "heapMaxBytes" -> Long.box(heap.getMax),
+      "nonHeapUsedBytes" -> Long.box(nonHeap.getUsed),
+      "nonHeapCommittedBytes" -> Long.box(nonHeap.getCommitted),
+      "liveThreads" -> Int.box(threads.getThreadCount),
+      "daemonThreads" -> Int.box(threads.getDaemonThreadCount),
+      "peakThreads" -> Int.box(threads.getPeakThreadCount))
+    val loadAverage = operatingSystem.getSystemLoadAverage
+    if (loadAverage >= 0 && java.lang.Double.isFinite(loadAverage)) {
+      values += "systemLoadAverage" -> Double.box(loadAverage)
+    }
+    values.toMap.asJava
+  }
+
   private def accessibleOperation(
       operationId: String,
       principal: KyuubiMcpPrincipal): Option[KyuubiOperation] = {
@@ -237,6 +277,7 @@ private[server] object KyuubiMcpLocalDiagnostics {
   val LIST_OPERATIONS = "list_operations"
   val GET_OPERATION = "get_operation"
   val READ_OPERATION_LOG = "read_operation_log"
+  val GET_SERVER_RUNTIME = "get_server_runtime"
   val LIST_SERVER_LOGS = "list_server_logs"
   val READ_SERVER_LOG = "read_server_log"
 
