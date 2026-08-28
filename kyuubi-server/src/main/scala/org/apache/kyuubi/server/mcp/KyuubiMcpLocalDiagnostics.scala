@@ -74,7 +74,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
       .toSeq
       .sortBy(_.createTime)(Ordering.Long.reverse)
       .take(limit)
-      .map(session => toMap(ApiUtils.sessionData(session)))
+      .map(session => safeSessionData(ApiUtils.sessionData(session)))
       .asJava
     Map[String, Object]("items" -> sessions).asJava
   }
@@ -87,7 +87,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
         val sessionId = requiredStringArgument(arguments, "session_id")
         frontendService.sessionManager.getSessionOption(SessionHandle.fromUUID(sessionId)) match {
           case Some(value: KyuubiSession) if canAccess(principal, value.user) =>
-            Some(toMap(ApiUtils.sessionData(value)))
+            Some(safeSessionData(ApiUtils.sessionData(value)))
           case _ => None
         }
       } catch {
@@ -115,7 +115,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
       .toSeq
       .sortBy(_.getOperationEvent.createTime)(Ordering.Long.reverse)
       .take(limit)
-      .map(operation => toMap(ApiUtils.operationData(operation)))
+      .map(operation => safeOperationData(ApiUtils.operationData(operation)))
       .asJava
     Map[String, Object]("items" -> operations).asJava
   }
@@ -125,7 +125,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
       principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
     val operationId = requiredStringArgument(arguments, "operation_id")
     optionalValue(accessibleOperation(operationId, principal).map(operation =>
-      toMap(ApiUtils.operationData(operation))))
+      safeOperationData(ApiUtils.operationData(operation))))
   }
 
   private def readOperationLog(
@@ -179,8 +179,11 @@ private[server] class KyuubiMcpLocalDiagnostics(
   private def canAccess(principal: KyuubiMcpPrincipal, owner: String): Boolean =
     principal.administrator || owner == principal.realUser
 
-  private def toMap(value: Object): java.util.Map[String, Object] =
-    objectMapper.convertValue(value, MAP_TYPE)
+  private def safeSessionData(value: Object): java.util.Map[String, Object] =
+    safeSessionProjection(objectMapper.convertValue(value, MAP_TYPE))
+
+  private def safeOperationData(value: Object): java.util.Map[String, Object] =
+    safeOperationProjection(objectMapper.convertValue(value, MAP_TYPE))
 }
 
 private[server] object KyuubiMcpLocalDiagnostics {
@@ -191,6 +194,42 @@ private[server] object KyuubiMcpLocalDiagnostics {
   val READ_OPERATION_LOG = "read_operation_log"
 
   private val MAP_TYPE = new TypeReference[java.util.Map[String, Object]]() {}
+  private val SAFE_SESSION_FIELDS = Seq(
+    "identifier",
+    "user",
+    "createTime",
+    "duration",
+    "idleTime",
+    "sessionType",
+    "kyuubiInstance",
+    "engineId",
+    "engineName",
+    "engineUrl",
+    "totalOperations")
+  private val SAFE_OPERATION_FIELDS = Seq(
+    "identifier",
+    "state",
+    "createTime",
+    "startTime",
+    "completeTime",
+    "sessionId",
+    "sessionUser",
+    "sessionType",
+    "kyuubiInstance",
+    "metrics")
+
+  private[server] def safeSessionProjection(
+      source: java.util.Map[String, Object]): java.util.Map[String, Object] =
+    safeProjection(source, SAFE_SESSION_FIELDS)
+
+  private[server] def safeOperationProjection(
+      source: java.util.Map[String, Object]): java.util.Map[String, Object] =
+    safeProjection(source, SAFE_OPERATION_FIELDS)
+
+  private def safeProjection(
+      source: java.util.Map[String, Object],
+      allowedFields: Seq[String]): java.util.Map[String, Object] =
+    allowedFields.flatMap(name => Option(source.get(name)).map(name -> _)).toMap.asJava
 
   def stringArgument(arguments: Map[String, AnyRef], name: String): Option[String] =
     arguments.get(name).map(_.toString.trim).filter(_.nonEmpty)

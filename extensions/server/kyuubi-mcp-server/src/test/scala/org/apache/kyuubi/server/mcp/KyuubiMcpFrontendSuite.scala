@@ -20,6 +20,8 @@ package org.apache.kyuubi.server.mcp
 import javax.servlet.http.HttpServletResponse
 import javax.ws.rs.client.Entity
 
+import scala.collection.JavaConverters._
+
 import org.apache.kyuubi.{RestClientTestHelper, RestFrontendTestHelper}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
@@ -44,9 +46,12 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
       "list_operations",
       "get_operation",
       "read_operation_log").foreach(tool => assert(tools.contains("\"name\":\"" + tool + "\"")))
+    assert(!tools.contains("execute_sql"))
+    assert(!tools.contains("submit_batch"))
 
     val callResponse = call(
-      """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_sessions","arguments":{}}}""")
+      """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_sessions",""" +
+        """"arguments":{}}}""")
     assert(callResponse.getStatus === 200)
     val callResult = callResponse.readEntity(classOf[String])
     assert(callResult.contains("\"isError\":false"))
@@ -56,7 +61,8 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(callResult.contains("\"respondedServers\":1"))
 
     val missingArgumentResponse = call(
-      """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_session","arguments":{}}}""")
+      """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_session",""" +
+        """"arguments":{}}}""")
     assert(missingArgumentResponse.getStatus === 200)
     val missingArgumentResult = missingArgumentResponse.readEntity(classOf[String])
     assert(missingArgumentResult.contains("\"isError\":true"))
@@ -75,6 +81,22 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     val malformedResponse = call("{")
     assert(malformedResponse.getStatus === 400)
     assert(!malformedResponse.readEntity(classOf[String]).contains("stackTrace"))
+  }
+
+  test("MCP diagnostic projections exclude statements, configuration and credentials") {
+    val source = Map[String, Object](
+      "identifier" -> "id",
+      "user" -> "alice",
+      "state" -> "RUNNING",
+      "conf" -> Map("password" -> "secret").asJava,
+      "statement" -> "select secret from table",
+      "exception" -> "token=secret",
+      "ipAddr" -> "127.0.0.1").asJava
+
+    val session = KyuubiMcpLocalDiagnostics.safeSessionProjection(source)
+    assert(session.keySet().asScala === Set("identifier", "user"))
+    val operation = KyuubiMcpLocalDiagnostics.safeOperationProjection(source)
+    assert(operation.keySet().asScala === Set("identifier", "state"))
   }
 
   private def call(body: String) = webTarget.path("/mcp").request()

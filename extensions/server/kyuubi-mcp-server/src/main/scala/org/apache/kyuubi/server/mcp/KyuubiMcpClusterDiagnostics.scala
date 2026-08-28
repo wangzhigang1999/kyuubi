@@ -38,7 +38,9 @@ import org.apache.kyuubi.server.api.v1.InternalRestClient
 import org.apache.kyuubi.service.authentication.InternalSecurityAccessor
 import org.apache.kyuubi.util.ThreadUtils
 
-/** Coordinates cluster-wide MCP diagnostics without recursively invoking the public MCP endpoint. */
+/**
+ * Coordinates cluster-wide MCP diagnostics without recursively invoking the public MCP endpoint.
+ */
 private[mcp] class KyuubiMcpClusterDiagnostics(
     frontendService: KyuubiRestFrontendService,
     objectMapper: ObjectMapper) extends Logging {
