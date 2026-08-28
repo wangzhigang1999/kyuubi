@@ -332,6 +332,16 @@ class KyuubiMcpServerLogSuite extends RestFrontendTestHelper {
     val forged = forgedResponse.readEntity(classOf[String])
     assert(forged.contains("\"isError\":true"))
     assert(forged.contains("does not exist or is not accessible"))
+
+    Files.delete(allowedLog)
+    Files.createSymbolicLink(allowedLog, outsideLog)
+    val replacedResponse = call(
+      s"""{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":""" +
+        s""""read_server_log","arguments":{"log_id":"$logId"}}}""")
+    assert(replacedResponse.getStatus === 200)
+    val replaced = replacedResponse.readEntity(classOf[String])
+    assert(replaced.contains("\"isError\":true"))
+    assert(!replaced.contains("must not be reachable"))
   }
 
   override def afterAll(): Unit = {

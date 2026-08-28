@@ -17,9 +17,10 @@
 
 package org.apache.kyuubi.server.mcp
 
-import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
-import java.nio.file.{Files, LinkOption, Path, Paths}
+import java.nio.file.{Files, LinkOption, Path, Paths, StandardOpenOption}
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.{Base64, Locale}
@@ -143,13 +144,14 @@ private[server] class KyuubiMcpLogSandbox(frontendService: KyuubiRestFrontendSer
       maxLines: Int,
       maxBytes: Int,
       contains: Option[String]): TailContent = {
-    val file = new RandomAccessFile(path.toFile, "r")
+    val file = FileChannel.open(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)
     try {
-      val length = file.length()
+      val length = file.size()
       val start = math.max(0L, length - maxBytes)
-      file.seek(start)
-      val bytes = new Array[Byte]((length - start).toInt)
-      file.readFully(bytes)
+      file.position(start)
+      val buffer = ByteBuffer.allocate((length - start).toInt)
+      while (buffer.hasRemaining && file.read(buffer) >= 0) {}
+      val bytes = buffer.array().take(buffer.position())
       val completeBytes = if (start == 0) {
         bytes
       } else {
