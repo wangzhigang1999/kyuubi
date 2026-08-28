@@ -103,6 +103,8 @@ private[mcp] object KyuubiMcpCatalog {
       |
       |This server exposes point-in-time, read-only monitoring and diagnosis across all discovered
       |Kyuubi Server instances behind one endpoint.
+      |The optional module targets Java 17. On Java 21 or later it automatically uses bounded
+      |virtual threads for cluster fan-out; Java 17 uses a bounded platform-thread pool.
       |
       |## Safety boundaries
       |

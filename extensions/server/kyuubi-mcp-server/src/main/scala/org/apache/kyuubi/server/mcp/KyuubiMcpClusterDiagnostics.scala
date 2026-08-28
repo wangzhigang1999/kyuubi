@@ -49,8 +49,7 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
   import KyuubiMcpLocalDiagnostics._
 
   private val localDiagnostics = new KyuubiMcpLocalDiagnostics(frontendService, objectMapper)
-  private val executor: ExecutorService =
-    ThreadUtils.newDaemonFixedThreadPool(MAX_CONCURRENT_PEERS, "mcp-cluster-diagnostics")
+  private val (executor, fanoutMode) = newFanoutExecutor()
   private val clients = new ConcurrentHashMap[String, InternalRestClient]()
 
   def clusterOverview(
@@ -295,6 +294,7 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
       "failedServers" -> failedServers,
       "discoveredServers" -> Int.box(fanout.discoveredServers),
       "respondedServers" -> Int.box(fanout.responses.size),
+      "fanoutMode" -> fanoutMode,
       "observedAt" -> Instant.now().toString)).asJava
   }
 
@@ -328,6 +328,22 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
         case _ => Seq.empty
       }).groupBy(_._1).map { case (key, counters) =>
       key -> Int.box(counters.map(_._2).sum)
+    }
+  }
+
+  private def newFanoutExecutor(): (ExecutorService, String) = {
+    try {
+      classOf[Thread].getMethod("isVirtual")
+      info("MCP cluster diagnostics will use bounded Java virtual threads")
+      ThreadUtils.newBoundedVirtualThreadPerTaskExecutor(
+        MAX_CLUSTER_PEERS,
+        "mcp-cluster-diagnostics") -> "virtual_threads"
+    } catch {
+      case _: NoSuchMethodException =>
+        info("MCP cluster diagnostics will use a bounded platform thread pool")
+        ThreadUtils.newDaemonFixedThreadPool(
+          MAX_CONCURRENT_PEERS,
+          "mcp-cluster-diagnostics") -> "platform_pool"
     }
   }
 }

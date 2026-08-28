@@ -63,6 +63,14 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(overview.contains("\"sessionCount\":0"))
     assert(overview.contains("\"operationCount\":0"))
     assert(overview.contains("\"partial\":false"))
+    val expectedFanoutMode =
+      try {
+        classOf[Thread].getMethod("isVirtual")
+        "virtual_threads"
+      } catch {
+        case _: NoSuchMethodException => "platform_pool"
+      }
+    assert(overview.contains("\"fanoutMode\":\"" + expectedFanoutMode + "\""))
 
     val callResponse = call(
       """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_sessions",""" +
