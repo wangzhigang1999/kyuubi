@@ -134,7 +134,9 @@ private[mcp] class KyuubiMcpTools(
       "Read a bounded portion of an accessible live operation log from any cluster server.",
       properties = Map(
         "operation_id" -> identifierProperty("Kyuubi operation identifier."),
-        "max_rows" -> integerProperty("Maximum log lines.", 1000)),
+        "max_rows" -> integerProperty("Maximum returned log lines.", 1000),
+        "max_bytes" -> integerProperty("Maximum returned UTF-8 log bytes.", 256 * 1024),
+        "contains" -> literalProperty("Literal case-insensitive line filter.")),
       required = Seq("operation_id")) {
       (context, arguments) =>
         lookupResult(
@@ -399,7 +401,8 @@ private[mcp] object KyuubiMcpTools {
       "type" -> "string",
       "description" -> description,
       "minLength" -> Int.box(1),
-      "maxLength" -> Int.box(256)).asJava
+      "maxLength" -> Int.box(256),
+      "pattern" -> "^[^\\u0000-\\u001F\\u007F]+$").asJava
 
   private def identifierProperty(description: String): Object =
     Map[String, Object](
@@ -414,7 +417,8 @@ private[mcp] object KyuubiMcpTools {
       "type" -> "string",
       "description" -> description,
       "minLength" -> Int.box(1),
-      "maxLength" -> Int.box(128)).asJava
+      "maxLength" -> Int.box(128),
+      "pattern" -> "^[^\\u0000-\\u001F\\u007F]+$").asJava
 
   private def opaqueLogIdProperty: Object =
     Map[String, Object](

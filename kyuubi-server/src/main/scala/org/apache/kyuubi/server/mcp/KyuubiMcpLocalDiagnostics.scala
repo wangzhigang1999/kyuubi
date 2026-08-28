@@ -17,9 +17,8 @@
 
 package org.apache.kyuubi.server.mcp
 
-import java.util.Collections
-
 import scala.collection.JavaConverters._
+import scala.collection.mutable.ListBuffer
 import scala.util.control.NonFatal
 
 import com.fasterxml.jackson.core.`type`.TypeReference
@@ -171,22 +170,31 @@ private[server] class KyuubiMcpLocalDiagnostics(
     accessibleOperation(operationId, principal) match {
       case Some(_) =>
         val maxRows = boundedIntArgument(arguments, "max_rows", 100, 1000)
+        val maxBytes = boundedIntArgument(arguments, "max_bytes", 64 * 1024, 256 * 1024)
+        val contains = stringArgument(arguments, "contains")
+        if (contains.exists(_.length > 128)) {
+          throw new IllegalArgumentException("contains must not exceed 128 characters")
+        }
         val result = frontendService.sessionManager.operationManager.getOperationLogRowSet(
           OperationHandle(operationId),
           FetchOrientation.FETCH_FIRST,
-          maxRows)
+          maxRows + 1)
         val rowSet = result.getResults
-        val lines = if (rowSet.getColumns == null || rowSet.getColumns.isEmpty) {
-          Collections.emptyList[String]()
+        val sourceLines = if (rowSet.getColumns == null || rowSet.getColumns.isEmpty) {
+          Seq.empty[String]
         } else {
-          rowSet.getColumns.get(0).getStringVal.getValues
+          rowSet.getColumns.get(0).getStringVal.getValues.asScala.toSeq
         }
+        val content = boundedRedactedLog(sourceLines, maxRows, maxBytes, contains)
         optionalValue(Some(Map[String, Object](
           "operationId" -> operationId,
           "kyuubiInstance" -> frontendService.connectionUrl,
-          "lines" -> lines,
-          "count" -> Int.box(lines.size()),
-          "maxRows" -> Int.box(maxRows)).asJava))
+          "lines" -> content.lines.asJava,
+          "count" -> Int.box(content.lines.size),
+          "maxRows" -> Int.box(maxRows),
+          "maxBytes" -> Int.box(maxBytes),
+          "truncated" -> Boolean.box(content.truncated),
+          "redacted" -> Boolean.box(true)).asJava))
       case None => optionalValue(None)
     }
   }
@@ -257,6 +265,8 @@ private[server] object KyuubiMcpLocalDiagnostics {
     "kyuubiInstance",
     "metrics")
 
+  private[server] case class BoundedLog(lines: Seq[String], truncated: Boolean)
+
   private[server] def safeSessionProjection(
       source: java.util.Map[String, Object]): java.util.Map[String, Object] =
     safeProjection(source, SAFE_SESSION_FIELDS)
@@ -269,6 +279,30 @@ private[server] object KyuubiMcpLocalDiagnostics {
       source: java.util.Map[String, Object],
       allowedFields: Seq[String]): java.util.Map[String, Object] =
     allowedFields.flatMap(name => Option(source.get(name)).map(name -> _)).toMap.asJava
+
+  private[server] def boundedRedactedLog(
+      source: Seq[String],
+      maxRows: Int,
+      maxBytes: Int,
+      contains: Option[String]): BoundedLog = {
+    val filter = contains.map(_.toLowerCase(java.util.Locale.ROOT))
+    val lines = ListBuffer[String]()
+    var size = 0
+    var truncated = false
+    source.foreach { rawLine =>
+      if (filter.forall(value => rawLine.toLowerCase(java.util.Locale.ROOT).contains(value))) {
+        val line = KyuubiMcpLogSandbox.redact(rawLine)
+        val lineSize = line.getBytes(java.nio.charset.StandardCharsets.UTF_8).length + 1
+        if (lines.size >= maxRows || size + lineSize > maxBytes) {
+          truncated = true
+        } else {
+          lines += line
+          size += lineSize
+        }
+      }
+    }
+    BoundedLog(lines.toSeq, truncated)
+  }
 
   def stringArgument(arguments: Map[String, AnyRef], name: String): Option[String] =
     arguments.get(name).map(_.toString.trim).filter(_.nonEmpty)

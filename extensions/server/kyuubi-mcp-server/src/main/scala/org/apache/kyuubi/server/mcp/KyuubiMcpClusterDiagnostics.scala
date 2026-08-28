@@ -104,6 +104,7 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
       principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
     requiredStringArgument(arguments, "operation_id")
     boundedIntArgument(arguments, "max_rows", 100, 1000)
+    boundedIntArgument(arguments, "max_bytes", 64 * 1024, 256 * 1024)
     aggregateLookup(READ_OPERATION_LOG, arguments, principal, "operationLog")
   }
 

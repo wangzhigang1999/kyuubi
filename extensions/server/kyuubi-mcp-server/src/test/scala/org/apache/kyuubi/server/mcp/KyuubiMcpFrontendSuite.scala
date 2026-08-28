@@ -198,6 +198,22 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(!redacted.contains("another"))
     assert(!redacted.contains("user:pass"))
     assert(redacted.contains("[REDACTED]"))
+
+    val bounded = KyuubiMcpLocalDiagnostics.boundedRedactedLog(
+      Seq("password=first", "safe line", "another line"),
+      maxRows = 2,
+      maxBytes = 100,
+      contains = None)
+    assert(bounded.lines.size === 2)
+    assert(!bounded.lines.mkString.contains("first"))
+    assert(bounded.truncated)
+    val oversizedLine = KyuubiMcpLocalDiagnostics.boundedRedactedLog(
+      Seq("a line larger than the budget"),
+      maxRows = 10,
+      maxBytes = 4,
+      contains = None)
+    assert(oversizedLine.lines.isEmpty)
+    assert(oversizedLine.truncated)
   }
 
   private def call(body: String) = webTarget.path("/mcp").request()
