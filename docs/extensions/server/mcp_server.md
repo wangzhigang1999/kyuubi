@@ -27,17 +27,19 @@ configuration, or provide data-development tools.
 
 ## Build and runtime
 
-Build the distribution with the `mcp` profile on JDK 17:
+Build the distribution with the `mcp` profile using JDK 17 or later:
 
 ```bash
 build/mvn -Pmcp -pl kyuubi-assembly -am package -DskipTests
 ```
 
-The MCP module targets Java 17 while the regular Kyuubi modules retain their existing bytecode
-target. Kyuubi must run on Java 17 or later when MCP is enabled. On Java 21 or later, cluster fan-out
-automatically uses Kyuubi's bounded virtual-thread executor. Java 17 uses a fixed platform-thread
-pool. Java 21 is useful for larger clusters and concurrent diagnosis, but is not required for
-protocol compatibility or correctness.
+The build JDK, Java API level, bytecode ceiling, and runtime JDK are independent. MCP sources are
+restricted to Java 17 APIs, and its classes and runtime dependencies do not exceed Java 17
+bytecode, while regular Kyuubi modules retain their existing bytecode target. Kyuubi must run on
+Java 17 or later when MCP is enabled. On Java 21 or later, cluster fan-out automatically uses
+Kyuubi's bounded virtual-thread executor. Java 17 uses a fixed platform-thread pool. Java 21 is
+useful for larger clusters and concurrent diagnosis, but is not required for protocol compatibility
+or correctness.
 
 ## Production configuration
 

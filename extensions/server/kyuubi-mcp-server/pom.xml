@@ -31,6 +31,7 @@
     <url>https://kyuubi.apache.org/</url>
 
     <properties>
+        <!-- A newer JDK may run the build; MCP artifacts and runtime dependencies remain Java 17 compatible. -->
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
         <maven.compiler.release>17</maven.compiler.release>
@@ -121,6 +122,9 @@
                 <groupId>net.alchim31.maven</groupId>
                 <artifactId>scala-maven-plugin</artifactId>
                 <configuration>
+                    <args combine.children="append">
+                        <arg>-release:17</arg>
+                    </args>
                     <sendJavaToScalac>false</sendJavaToScalac>
                 </configuration>
             </plugin>
