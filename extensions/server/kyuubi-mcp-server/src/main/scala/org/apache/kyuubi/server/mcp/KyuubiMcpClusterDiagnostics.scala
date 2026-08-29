@@ -367,18 +367,16 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
   }
 
   private def newFanoutExecutor(): (ExecutorService, String) = {
-    try {
-      classOf[Thread].getMethod("isVirtual")
+    if (Runtime.version().feature() >= 21) {
       info("MCP cluster diagnostics will use bounded Java virtual threads")
       ThreadUtils.newBoundedVirtualThreadPerTaskExecutor(
         MAX_CLUSTER_PEERS,
         "mcp-cluster-diagnostics") -> "virtual_threads"
-    } catch {
-      case _: NoSuchMethodException =>
-        info("MCP cluster diagnostics will use a bounded platform thread pool")
-        ThreadUtils.newDaemonFixedThreadPool(
-          MAX_CONCURRENT_PEERS,
-          "mcp-cluster-diagnostics") -> "platform_pool"
+    } else {
+      info("MCP cluster diagnostics will use a bounded platform thread pool")
+      ThreadUtils.newDaemonFixedThreadPool(
+        MAX_CONCURRENT_PEERS,
+        "mcp-cluster-diagnostics") -> "platform_pool"
     }
   }
 }

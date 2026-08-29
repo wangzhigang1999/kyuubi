@@ -60,8 +60,8 @@ administrator.
 LDAP and other password-based providers authenticate MCP requests through HTTP Basic
 `Authorization`. Terminate TLS at the Kyuubi ingress or a trusted reverse proxy, and configure the
 MCP client to obtain its password from secret storage. Do not place a password or a precomputed
-Basic header in prompts, tool arguments, or source-controlled client configuration. The endpoint is
-stateless, so credentials are checked on each request.
+Basic header in chat instructions, tool arguments, or source-controlled client configuration. The
+endpoint is stateless, so credentials are checked on each request.
 
 For a multi-instance cluster, also enable Kyuubi internal security. Peer fan-out uses the existing
 short-lived internal token and never forwards the caller's password:
@@ -94,7 +94,7 @@ node as empty.
 
 All tools are annotated as read-only, idempotent, non-destructive, and closed-world. List and read
 parameters have schema-enforced limits. Identifiers should come from a preceding list call. Missing
-and inaccessible resources intentionally return the same public error.
+and inaccessible objects intentionally return the same public error.
 
 Every cluster response includes:
 
@@ -125,12 +125,9 @@ own authorization and resource allowlist.
 
 ## Diagnostic workflows
 
-The server publishes the `kyuubi://diagnostics/capabilities` resource and four guided prompts:
-
-- `check_cluster_health` starts with reachability and live workload state.
-- `diagnose_operation` correlates one operation's state, timing, metrics, and bounded log.
-- `diagnose_engine_startup` correlates a session, its engine identity, operations, and logs.
-- `diagnose_server` correlates cluster state, safe runtime metrics, and allowlisted server logs.
+The server exposes tools only. It does not publish MCP resources or prompts. Clients can compose
+tool calls for cluster health, operation, engine startup, and server diagnosis without adding
+server-defined conversation templates or a second discovery surface.
 
 A diagnosis must inspect `partial` and `failedServers` before claiming that a session, operation,
 engine, or log is absent. Use metadata first and logs only when state and timing do not explain the
