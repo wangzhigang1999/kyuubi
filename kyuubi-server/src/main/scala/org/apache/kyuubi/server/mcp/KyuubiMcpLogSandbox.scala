@@ -29,18 +29,14 @@ import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
 
 import org.apache.kyuubi.Logging
-import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_MCP_SERVER_LOG_DIRECTORIES, FRONTEND_MCP_SERVER_LOG_EXTENSIONS}
 import org.apache.kyuubi.server.KyuubiRestFrontendService
 
-/** Reads only regular files discovered beneath administrator-configured canonical roots. */
+/** Reads only regular log files discovered beneath the Kyuubi Server log directory. */
 private[server] class KyuubiMcpLogSandbox(frontendService: KyuubiRestFrontendService)
   extends Logging {
 
   import KyuubiMcpLocalDiagnostics._
   import KyuubiMcpLogSandbox._
-
-  private val roots = configuredRoots(frontendService)
-  private val extensions = configuredExtensions(frontendService)
 
   private def serverInstance: String = frontendService.connectionUrl
 
@@ -48,9 +44,10 @@ private[server] class KyuubiMcpLogSandbox(frontendService: KyuubiRestFrontendSer
       arguments: Map[String, AnyRef],
       principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
     requireAdministrator(principal)
+    val roots = configuredRoots()
     val limit = boundedIntArgument(arguments, "limit", 100, MAX_LIST_RESULTS)
     val contains = boundedLiteralArgument(arguments, "contains")
-    val files = discoverFiles()
+    val files = discoverFiles(roots)
       .filter(file => contains.forall(value => file.name.toLowerCase(Locale.ROOT).contains(value)))
       .sortBy(_.lastModified)(Ordering.Long.reverse)
       .take(limit)
@@ -77,7 +74,7 @@ private[server] class KyuubiMcpLogSandbox(frontendService: KyuubiRestFrontendSer
     val maxLines = boundedIntArgument(arguments, "max_lines", 200, MAX_READ_LINES)
     val maxBytes = boundedIntArgument(arguments, "max_bytes", DEFAULT_READ_BYTES, MAX_READ_BYTES)
     val contains = boundedLiteralArgument(arguments, "contains")
-    discoverFiles().find(_.id == logId) match {
+    discoverFiles(configuredRoots()).find(_.id == logId) match {
       case Some(file) =>
         val content = readTail(file.path, maxLines, maxBytes, contains)
         info(s"MCP server log read allowed for user ${principal.realUser}, logId $logId")
@@ -101,14 +98,14 @@ private[server] class KyuubiMcpLogSandbox(frontendService: KyuubiRestFrontendSer
     }
   }
 
-  private def discoverFiles(): Seq[LogFile] = roots.flatMap { root =>
+  private def discoverFiles(roots: Seq[Path]): Seq[LogFile] = roots.flatMap { root =>
     val stream = Files.walk(root, MAX_DIRECTORY_DEPTH)
     try {
       stream.iterator().asScala
         .filter(path => Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
         .filterNot(Files.isSymbolicLink)
         .filter(path =>
-          extensions.exists(extension =>
+          ALLOWED_LOG_EXTENSIONS.exists(extension =>
             path.getFileName.toString.toLowerCase(Locale.ROOT).endsWith(extension)))
         .take(MAX_DISCOVERED_FILES)
         .flatMap(path => safeLogFile(root, path))
@@ -134,7 +131,7 @@ private[server] class KyuubiMcpLogSandbox(frontendService: KyuubiRestFrontendSer
       }
     } catch {
       case NonFatal(e) =>
-        debug(s"Skipping an unreadable MCP server log under configured root $root", e)
+        debug(s"Skipping an unreadable MCP server log under $KYUUBI_LOG_DIR $root", e)
         None
     }
   }
@@ -147,9 +144,10 @@ private[server] class KyuubiMcpLogSandbox(frontendService: KyuubiRestFrontendSer
     val file = FileChannel.open(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)
     try {
       val length = file.size()
-      val start = math.max(0L, length - maxBytes)
+      val bytesToRead = math.min(length, maxBytes.toLong).toInt
+      val start = length - bytesToRead
       file.position(start)
-      val buffer = ByteBuffer.allocate((length - start).toInt)
+      val buffer = ByteBuffer.allocate(bytesToRead)
       while (buffer.hasRemaining && file.read(buffer) >= 0) {}
       val bytes = buffer.array().take(buffer.position())
       val completeBytes = if (start == 0) {
@@ -184,6 +182,8 @@ private[server] object KyuubiMcpLogSandbox {
   private val DEFAULT_READ_BYTES = 64 * 1024
   private val MAX_READ_BYTES = 256 * 1024
   private val MAX_LITERAL_LENGTH = 128
+  private val KYUUBI_LOG_DIR = "KYUUBI_LOG_DIR"
+  private val ALLOWED_LOG_EXTENSIONS = Set(".log", ".out", ".err")
   private val LOG_ID_PATTERN = "^[A-Za-z0-9_-]{43}$".r
   private val SECRET_ASSIGNMENT =
     ("(?i)([\\\"']?(?:password|passwd|pwd|token|secret|authorization|access[_-]?key|" +
@@ -195,27 +195,18 @@ private[server] object KyuubiMcpLogSandbox {
   private case class LogFile(id: String, name: String, path: Path, size: Long, lastModified: Long)
   private case class TailContent(lines: Seq[String], truncated: Boolean)
 
-  private def configuredRoots(frontendService: KyuubiRestFrontendService): Seq[Path] =
-    frontendService.getConf.get(FRONTEND_MCP_SERVER_LOG_DIRECTORIES).map { configured =>
-      val path = Paths.get(configured)
-      if (!path.isAbsolute || Files.isSymbolicLink(path) ||
-        !Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+  private def configuredRoots(): Seq[Path] = Option(System.getenv(KYUUBI_LOG_DIR))
+    .map(_.trim)
+    .filter(_.nonEmpty)
+    .toSeq
+    .map { configured =>
+      val path = Paths.get(configured).toAbsolutePath.normalize()
+      if (Files.isSymbolicLink(path) || !Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
         throw new IllegalArgumentException(
-          s"${FRONTEND_MCP_SERVER_LOG_DIRECTORIES.key} contains an invalid directory")
+          s"$KYUUBI_LOG_DIR must identify a non-symbolic-link directory")
       }
       path.toRealPath(LinkOption.NOFOLLOW_LINKS)
-    }.distinct
-
-  private def configuredExtensions(frontendService: KyuubiRestFrontendService): Set[String] = {
-    val values = frontendService.getConf.get(FRONTEND_MCP_SERVER_LOG_EXTENSIONS).map(
-      _.trim.toLowerCase(Locale.ROOT))
-    if (values.isEmpty || values.exists(value =>
-        !value.matches("^\\.[a-z0-9]{1,10}$"))) {
-      throw new IllegalArgumentException(
-        s"${FRONTEND_MCP_SERVER_LOG_EXTENSIONS.key} contains an invalid extension")
     }
-    values.toSet
-  }
 
   private def opaqueId(instance: String, path: Path): String = {
     val digest = MessageDigest.getInstance("SHA-256")

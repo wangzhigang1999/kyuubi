@@ -76,6 +76,10 @@ must be reachable from one another. If discovery or a peer fails, tools return a
 with `partial=true` and a bounded `failedServers` list instead of silently treating the missing
 node as empty.
 
+A request fans out to at most 64 discovered servers. If discovery returns more instances, the
+response remains explicit: `discoveredServers` reports the full count, `partial` is `true`, and the
+response reports `omittedServers` plus a bounded `failedServers` summary.
+
 ## Tools
 
 |          Tool          |                 Scope                  |                                       Purpose                                        |
@@ -98,26 +102,22 @@ and inaccessible objects intentionally return the same public error.
 
 Every cluster response includes:
 
-- `partial`, `failedServers`, `discoveredServers`, and `respondedServers`;
+- `partial`, `failedServers`, `discoveredServers`, `omittedServers`, `fanoutLimit`, and
+  `respondedServers`;
 - `observedAt`, because results are point-in-time observations;
 - `fanoutMode`, either `platform_pool` or `virtual_threads`.
 
 ## Server log sandbox
 
-Server log access is disabled by default. Enable it only with canonical roots controlled by the
-Kyuubi administrator:
-
-```properties
-kyuubi.frontend.mcp.server.log.directories=/var/log/kyuubi
-kyuubi.frontend.mcp.server.log.extensions=.log,.out,.err
-```
+Each server reads its existing `KYUUBI_LOG_DIR`, the same environment setting used by the Kyuubi
+launcher and Log4j2 configuration. No separate MCP log path is configured.
 
 The public tools never accept a filesystem path. `list_server_logs` walks at most four levels
-under configured roots without following symbolic links and returns opaque SHA-256-derived IDs.
+under that directory without following symbolic links and returns opaque SHA-256-derived IDs.
 `read_server_log` resolves an ID again, opens the file with `NOFOLLOW_LINKS`, reads at most 1,000
 lines and 256 KiB from its tail, applies only a bounded literal filter, and redacts common
-credentials. Roots and extensions are administrator allowlists; discovery counts, response bytes,
-concurrency, and request duration have hard limits.
+credentials. Only regular `.log`, `.out`, and `.err` files are eligible. Discovery counts, response
+bytes, concurrency, and request duration have hard limits.
 
 The sandbox reads Kyuubi Server files on each node. YARN and Kubernetes application-container logs
 are outside this filesystem boundary and require a separate cluster-manager-aware provider with its

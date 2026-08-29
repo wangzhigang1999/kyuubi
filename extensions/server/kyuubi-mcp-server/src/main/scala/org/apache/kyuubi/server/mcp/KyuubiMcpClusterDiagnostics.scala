@@ -216,8 +216,12 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
     val allInstances = discovery.instances
     val instances = allInstances.take(MAX_CLUSTER_PEERS)
     val failures = ListBuffer[PeerFailure]() ++ discovery.failures
-    allInstances.drop(MAX_CLUSTER_PEERS).foreach(instance =>
-      failures += PeerFailure(instance, "fanout limit exceeded"))
+    val omittedServers = allInstances.size - instances.size
+    if (omittedServers > 0) {
+      failures += PeerFailure(
+        "cluster-fanout",
+        s"$omittedServers servers omitted by the $MAX_CLUSTER_PEERS-server fanout limit")
+    }
 
     val localInstance = normalizeInstance(frontendService.connectionUrl)
     val remoteInstances = instances.filterNot(_ == localInstance)
@@ -261,7 +265,7 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
         }
       }
     }
-    FanoutResult(allInstances.size, responses.toSeq, failures.toSeq)
+    FanoutResult(allInstances.size, omittedServers, responses.toSeq, failures.toSeq)
   }
 
   private def executeRemote(
@@ -328,6 +332,8 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
       "partial" -> Boolean.box(fanout.failures.nonEmpty),
       "failedServers" -> failedServers,
       "discoveredServers" -> Int.box(fanout.discoveredServers),
+      "omittedServers" -> Int.box(fanout.omittedServers),
+      "fanoutLimit" -> Int.box(MAX_CLUSTER_PEERS),
       "respondedServers" -> Int.box(fanout.responses.size),
       "fanoutMode" -> fanoutMode,
       "observedAt" -> Instant.now().toString)).asJava
@@ -395,6 +401,7 @@ private[mcp] object KyuubiMcpClusterDiagnostics {
   private case class PeerFailure(instance: String, reason: String)
   private case class FanoutResult(
       discoveredServers: Int,
+      omittedServers: Int,
       responses: Seq[PeerResponse],
       failures: Seq[PeerFailure])
   private case class DiscoveryResult(

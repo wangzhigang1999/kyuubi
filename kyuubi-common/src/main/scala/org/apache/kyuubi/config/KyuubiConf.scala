@@ -830,29 +830,6 @@ object KyuubiConf {
       .booleanConf
       .createWithDefault(false)
 
-  val FRONTEND_MCP_SERVER_LOG_DIRECTORIES: ConfigEntry[Seq[String]] =
-    buildConf("kyuubi.frontend.mcp.server.log.directories")
-      .audience(SERVER)
-      .immutable
-      .doc("Comma-separated canonical directories from which MCP administrators may read " +
-        "Kyuubi Server logs. The default empty list disables server log access. Files are " +
-        "addressed by opaque identifiers; MCP tools never accept filesystem paths.")
-      .version("1.13.0")
-      .stringConf
-      .toSequence()
-      .createWithDefault(Nil)
-
-  val FRONTEND_MCP_SERVER_LOG_EXTENSIONS: ConfigEntry[Seq[String]] =
-    buildConf("kyuubi.frontend.mcp.server.log.extensions")
-      .audience(SERVER)
-      .immutable
-      .doc("Comma-separated lowercase file extensions allowed under the configured MCP server " +
-        "log directories. Symbolic links are never followed.")
-      .version("1.13.0")
-      .stringConf
-      .toSequence()
-      .createWithDefault(Seq(".log", ".out", ".err"))
-
   val FRONTEND_WORKER_KEEPALIVE_TIME: ConfigEntry[Long] =
     buildConf("kyuubi.frontend.worker.keepalive.time")
       .doc("(deprecated) Keep-alive time (in milliseconds) for an idle worker thread")

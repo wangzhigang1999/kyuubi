@@ -18,7 +18,7 @@
 package org.apache.kyuubi.server.mcp
 
 import java.nio.charset.StandardCharsets
-import java.nio.file.Files
+import java.nio.file.{Files, Paths}
 import javax.servlet.http.HttpServletResponse
 import javax.ws.rs.client.Entity
 
@@ -90,6 +90,8 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(callResult.contains("\"sessions\":[]"))
     assert(callResult.contains("\"partial\":false"))
     assert(callResult.contains("\"discoveredServers\":1"))
+    assert(callResult.contains("\"omittedServers\":0"))
+    assert(callResult.contains("\"fanoutLimit\":64"))
     assert(callResult.contains("\"respondedServers\":1"))
 
     val missingArgumentResponse = call(
@@ -257,7 +259,11 @@ class KyuubiMcpFrontendAuthenticationSuite extends RestFrontendTestHelper {
 
 class KyuubiMcpServerLogSuite extends RestFrontendTestHelper {
 
-  private val logRoot = Files.createTempDirectory("kyuubi-mcp-server-logs")
+  private val logRoot = Paths.get(System.getenv("KYUUBI_LOG_DIR"))
+  if (Files.exists(logRoot)) {
+    Utils.deleteDirectoryRecursively(logRoot.toFile)
+  }
+  Files.createDirectories(logRoot)
   private val outsideLog = Files.createTempFile("kyuubi-mcp-outside", ".log")
   private val allowedLog = logRoot.resolve("kyuubi-server.log")
   private val deniedFile = logRoot.resolve("credentials.txt")
@@ -276,7 +282,6 @@ class KyuubiMcpServerLogSuite extends RestFrontendTestHelper {
     .set(AUTHENTICATION_METHOD, Seq("NONE"))
     .set(FRONTEND_MCP_ENABLED, true)
     .set(FRONTEND_MCP_ALLOW_INSECURE_AUTHENTICATION, true)
-    .set(FRONTEND_MCP_SERVER_LOG_DIRECTORIES, Seq(logRoot.toString))
 
   test("MCP server logs stay inside configured roots and redact credentials") {
     val listResponse = call(

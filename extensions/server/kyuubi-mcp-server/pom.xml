@@ -128,6 +128,16 @@
                     <sendJavaToScalac>false</sendJavaToScalac>
                 </configuration>
             </plugin>
+
+            <plugin>
+                <groupId>org.scalatest</groupId>
+                <artifactId>scalatest-maven-plugin</artifactId>
+                <configuration>
+                    <environmentVariables>
+                        <KYUUBI_LOG_DIR>${project.build.directory}/mcp-server-logs</KYUUBI_LOG_DIR>
+                    </environmentVariables>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>
