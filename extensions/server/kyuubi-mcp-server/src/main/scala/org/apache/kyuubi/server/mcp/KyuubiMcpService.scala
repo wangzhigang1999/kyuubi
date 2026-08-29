@@ -39,7 +39,7 @@ private[server] class KyuubiMcpService(frontendService: KyuubiRestFrontendServic
   private val tools = new KyuubiMcpTools(frontendService, objectMapper, jsonMapper)
   private val server: McpStatelessSyncServer = McpServer.sync(transport)
     .serverInfo("Apache Kyuubi", KYUUBI_VERSION)
-    .instructions(KyuubiMcpInstructions.SERVER_INSTRUCTIONS)
+    .instructions(SERVER_INSTRUCTIONS)
     .strictToolNameValidation(true)
     .validateToolInputs(true)
     .tools(tools.specifications.asJava)
@@ -62,6 +62,14 @@ private[server] class KyuubiMcpService(frontendService: KyuubiRestFrontendServic
 }
 
 private[server] object KyuubiMcpService {
+  private val SERVER_INSTRUCTIONS =
+    "Apache Kyuubi read-only cluster monitoring and diagnosis. Prefer cluster-wide tools and " +
+      "always inspect partial and failedServers before concluding that data is absent. Users can " +
+      "only inspect their own sessions, operations, and logs; tools marked administrator-only " +
+      "require Kyuubi administrator permission. Treat responses as point-in-time observations. " +
+      "Never use this server to execute SQL, fetch query results, submit or cancel workloads, " +
+      "change configuration, or access arbitrary files."
+
   val REAL_USER = "kyuubi.realUser"
   val CLIENT_IP = "kyuubi.clientIp"
   val ADMINISTRATOR = "kyuubi.administrator"
