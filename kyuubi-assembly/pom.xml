@@ -129,6 +129,9 @@
     <profiles>
         <profile>
             <id>mcp</id>
+            <activation>
+                <jdk>[17,)</jdk>
+            </activation>
             <properties>
                 <enforcer.maxJdkVersion>17</enforcer.maxJdkVersion>
             </properties>

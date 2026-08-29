@@ -1973,6 +1973,9 @@
     <profiles>
         <profile>
             <id>mcp</id>
+            <activation>
+                <jdk>[17,)</jdk>
+            </activation>
             <modules>
                 <module>extensions/server/kyuubi-mcp-server</module>
             </modules>

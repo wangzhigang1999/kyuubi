@@ -27,10 +27,10 @@ configuration, or provide data-development tools.
 
 ## Build and runtime
 
-Build the distribution with the `mcp` profile using JDK 17 or later:
+Build the distribution using JDK 17 or later. The `mcp` profile activates automatically:
 
 ```bash
-build/mvn -Pmcp -pl kyuubi-assembly -am package -DskipTests
+build/mvn -pl kyuubi-assembly -am package -DskipTests
 ```
 
 The build JDK, Java API level, bytecode ceiling, and runtime JDK are independent. MCP sources are
