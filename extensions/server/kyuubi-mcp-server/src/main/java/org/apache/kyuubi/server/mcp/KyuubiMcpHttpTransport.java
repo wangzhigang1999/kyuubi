@@ -23,14 +23,16 @@ import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpStatelessServerHandler;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpStatelessServerTransport;
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
-import java.util.function.Supplier;
+import java.util.function.Function;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -45,21 +47,21 @@ public final class KyuubiMcpHttpTransport extends HttpServlet
   private static final Logger LOG = LoggerFactory.getLogger(KyuubiMcpHttpTransport.class);
   private static final String APPLICATION_JSON = "application/json";
   private static final String TEXT_EVENT_STREAM = "text/event-stream";
-  private static final int MAX_REQUEST_CHARACTERS = 64 * 1024;
-  private static final int MAX_RESPONSE_CHARACTERS = 1024 * 1024;
+  private static final int MAX_REQUEST_BYTES = 64 * 1024;
+  private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
   private static final int MAX_CONCURRENT_REQUESTS = 64;
   private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(15);
   private static final int TOO_MANY_REQUESTS = 429;
 
   private final McpJsonMapper jsonMapper;
-  private final Supplier<McpTransportContext> contextSupplier;
+  private final Function<Object, McpTransportContext> contextSupplier;
   private final Semaphore requestPermits = new Semaphore(MAX_CONCURRENT_REQUESTS);
 
   private volatile McpStatelessServerHandler handler;
   private volatile boolean closing;
 
   public KyuubiMcpHttpTransport(
-      McpJsonMapper jsonMapper, Supplier<McpTransportContext> contextSupplier) {
+      McpJsonMapper jsonMapper, Function<Object, McpTransportContext> contextSupplier) {
     this.jsonMapper = jsonMapper;
     this.contextSupplier = contextSupplier;
   }
@@ -126,7 +128,11 @@ public final class KyuubiMcpHttpTransport extends HttpServlet
     try {
       McpSchema.JSONRPCMessage message =
           McpSchema.deserializeJsonRpcMessage(jsonMapper, readBody(request));
-      McpTransportContext context = contextSupplier.get();
+      Object requestId =
+          message instanceof McpSchema.JSONRPCRequest
+              ? ((McpSchema.JSONRPCRequest) message).id()
+              : null;
+      McpTransportContext context = contextSupplier.apply(requestId);
       if (message instanceof McpSchema.JSONRPCRequest) {
         McpSchema.JSONRPCResponse rpcResponse =
             handler
@@ -173,19 +179,22 @@ public final class KyuubiMcpHttpTransport extends HttpServlet
   }
 
   private String readBody(HttpServletRequest request) throws IOException {
-    if (request.getContentLengthLong() > MAX_REQUEST_CHARACTERS) {
+    if (request.getContentLengthLong() > MAX_REQUEST_BYTES) {
       throw new IllegalArgumentException("MCP request exceeds the maximum size");
     }
-    StringBuilder body = new StringBuilder();
-    BufferedReader reader = request.getReader();
-    String line;
-    while ((line = reader.readLine()) != null) {
-      body.append(line);
-      if (body.length() > MAX_REQUEST_CHARACTERS) {
+    ByteArrayOutputStream body = new ByteArrayOutputStream();
+    InputStream input = request.getInputStream();
+    byte[] buffer = new byte[8192];
+    int totalBytes = 0;
+    int bytesRead;
+    while ((bytesRead = input.read(buffer)) != -1) {
+      totalBytes += bytesRead;
+      if (totalBytes > MAX_REQUEST_BYTES) {
         throw new IllegalArgumentException("MCP request exceeds the maximum size");
       }
+      body.write(buffer, 0, bytesRead);
     }
-    return body.toString();
+    return new String(body.toByteArray(), StandardCharsets.UTF_8);
   }
 
   private void writeError(HttpServletResponse response, int status, int code, String message)
@@ -203,13 +212,13 @@ public final class KyuubiMcpHttpTransport extends HttpServlet
   }
 
   private void writeJson(HttpServletResponse response, Object value) throws IOException {
-    String json = jsonMapper.writeValueAsString(value);
-    if (json.length() > MAX_RESPONSE_CHARACTERS) {
+    byte[] json = jsonMapper.writeValueAsString(value).getBytes(StandardCharsets.UTF_8);
+    if (json.length > MAX_RESPONSE_BYTES) {
       throw new IOException("MCP response exceeds the maximum size");
     }
     response.setCharacterEncoding("UTF-8");
     response.setContentType(APPLICATION_JSON);
-    response.getWriter().write(json);
-    response.getWriter().flush();
+    response.getOutputStream().write(json);
+    response.getOutputStream().flush();
   }
 }

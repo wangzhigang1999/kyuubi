@@ -35,7 +35,7 @@ private[server] class KyuubiMcpService(frontendService: KyuubiRestFrontendServic
 
   private val objectMapper = new ObjectMapper()
   private val jsonMapper = new JacksonMcpJsonMapper(objectMapper)
-  val transport = new KyuubiMcpHttpTransport(jsonMapper, () => requestContext())
+  val transport = new KyuubiMcpHttpTransport(jsonMapper, requestId => requestContext(requestId))
   private val tools = new KyuubiMcpTools(frontendService, objectMapper, jsonMapper)
   private val server: McpStatelessSyncServer = McpServer.sync(transport)
     .serverInfo("Apache Kyuubi", KYUUBI_VERSION)
@@ -52,9 +52,10 @@ private[server] class KyuubiMcpService(frontendService: KyuubiRestFrontendServic
     server.closeGracefully()
   }
 
-  private def requestContext(): McpTransportContext = {
+  private def requestContext(requestId: Object): McpTransportContext = {
     val realUser = frontendService.getRealUser()
     McpTransportContext.create(Map[String, Object](
+      REQUEST_ID -> Option(requestId).map(_.toString).getOrElse(""),
       REAL_USER -> realUser,
       CLIENT_IP -> frontendService.getIpAddress,
       ADMINISTRATOR -> Boolean.box(frontendService.isAdministrator(realUser))).asJava)
@@ -73,4 +74,5 @@ private[server] object KyuubiMcpService {
   val REAL_USER = "kyuubi.realUser"
   val CLIENT_IP = "kyuubi.clientIp"
   val ADMINISTRATOR = "kyuubi.administrator"
+  val REQUEST_ID = "kyuubi.requestId"
 }

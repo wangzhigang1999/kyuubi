@@ -17,29 +17,26 @@
 
 package org.apache.kyuubi.server.mcp
 
-import java.time.Instant
-import java.util.Collections
+import java.util.concurrent.TimeUnit
 import java.util.function.BiFunction
 
 import scala.collection.JavaConverters._
-import scala.collection.mutable.ListBuffer
 import scala.util.control.NonFatal
 
+import com.codahale.metrics.MetricRegistry
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.modelcontextprotocol.common.McpTransportContext
 import io.modelcontextprotocol.json.McpJsonMapper
 import io.modelcontextprotocol.server.McpStatelessServerFeatures
 import io.modelcontextprotocol.spec.McpSchema
 
-import org.apache.kyuubi.{KYUUBI_VERSION, Logging}
-import org.apache.kyuubi.client.api.v1.dto.Engine
-import org.apache.kyuubi.config.KyuubiConf._
+import org.apache.kyuubi.Logging
 import org.apache.kyuubi.engine.{EngineType, ShareLevel}
-import org.apache.kyuubi.ha.HighAvailabilityConf.HA_NAMESPACE
-import org.apache.kyuubi.ha.client.{DiscoveryPaths, ServiceDiscovery, ServiceNodeInfo}
-import org.apache.kyuubi.ha.client.DiscoveryClientProvider.withDiscoveryClient
+import org.apache.kyuubi.metrics.MetricsConstants.{MCP_TOOL_CALL_TIME, MCP_TOOL_CALL_TOTAL}
+import org.apache.kyuubi.metrics.MetricsSystem
 import org.apache.kyuubi.operation.OperationState
 import org.apache.kyuubi.server.KyuubiRestFrontendService
+import org.apache.kyuubi.server.diagnostics.{ClusterDiagnosticService, DiagnosticPrincipal, DiagnosticService}
 import org.apache.kyuubi.session.SessionType
 
 private[mcp] class KyuubiMcpTools(
@@ -47,12 +44,12 @@ private[mcp] class KyuubiMcpTools(
     objectMapper: ObjectMapper,
     jsonMapper: McpJsonMapper) extends Logging {
 
-  import KyuubiMcpLocalDiagnostics._
+  import DiagnosticService._
   import KyuubiMcpService._
   import KyuubiMcpTools._
 
   private val clusterDiagnostics =
-    new KyuubiMcpClusterDiagnostics(frontendService, objectMapper)
+    new ClusterDiagnosticService(frontendService, objectMapper)
 
   def specifications: Seq[McpStatelessServerFeatures.SyncToolSpecification] = Seq(
     tool(
@@ -97,7 +94,10 @@ private[mcp] class KyuubiMcpTools(
           "Engine share level.",
           ShareLevel.values.map(_.toString).toSeq),
         "subdomain" -> boundedStringProperty("Engine share-level subdomain."))) {
-      (context, arguments) => listEngines(context, arguments)
+      (context, arguments) =>
+        clusterListResult(context, arguments) {
+          clusterDiagnostics.listEngines(arguments, principal(context))
+        }
     },
     tool(
       LIST_SESSIONS,
@@ -196,83 +196,6 @@ private[mcp] class KyuubiMcpTools(
 
   def close(): Unit = clusterDiagnostics.close()
 
-  private def listEngines(
-      context: McpTransportContext,
-      arguments: Map[String, AnyRef]): McpSchema.CallToolResult = {
-    val requestedUser = stringArgument(arguments, "user")
-    val effectiveUser = requestedUser match {
-      case Some(user) if isAdministrator(context) => user
-      case Some(user) if user != realUser(context) =>
-        return accessDenied("The requested user is not accessible.")
-      case _ => realUser(context)
-    }
-
-    val clonedConf = frontendService.getConf.clone
-    stringArgument(arguments, "engine_type").foreach(clonedConf.set(ENGINE_TYPE, _))
-    stringArgument(arguments, "share_level").foreach(clonedConf.set(ENGINE_SHARE_LEVEL, _))
-    stringArgument(arguments, "subdomain")
-      .foreach(value => clonedConf.set(ENGINE_SHARE_LEVEL_SUBDOMAIN, Some(value)))
-
-    val engine = new Engine(
-      KYUUBI_VERSION,
-      effectiveUser,
-      clonedConf.get(ENGINE_TYPE),
-      clonedConf.get(ENGINE_SHARE_LEVEL),
-      clonedConf.get(ENGINE_SHARE_LEVEL_SUBDOMAIN).getOrElse(""),
-      null,
-      clonedConf.get(HA_NAMESPACE),
-      Collections.emptyMap())
-
-    if (!ServiceDiscovery.supportServiceDiscovery(clonedConf)) {
-      return success(engineResult(discoveryEnabled = false, Collections.emptyList[AnyRef]()))
-    }
-
-    val engineSpace = calculateEngineSpace(engine)
-    val engineNodes = ListBuffer[ServiceNodeInfo]()
-    withDiscoveryClient(clonedConf) { client =>
-      stringArgument(arguments, "subdomain") match {
-        case Some(_) => engineNodes ++= client.getServiceNodesInfo(engineSpace, silent = true)
-        case None if !client.pathNonExists(engineSpace) =>
-          client.getChildren(engineSpace).foreach { child =>
-            engineNodes ++= client.getServiceNodesInfo(s"$engineSpace/$child", silent = true)
-          }
-        case _ =>
-      }
-    }
-    val engines = engineNodes.map(node =>
-      Map[String, Object](
-        "version" -> engine.getVersion,
-        "user" -> engine.getUser,
-        "engineType" -> engine.getEngineType,
-        "shareLevel" -> engine.getSharelevel,
-        "subdomain" -> node.namespace.split("/").last,
-        "instance" -> node.instance).asJava).asJava
-    success(engineResult(discoveryEnabled = true, engines))
-  }
-
-  private def engineResult(
-      discoveryEnabled: Boolean,
-      engines: java.util.List[_]): java.util.Map[String, Object] =
-    Map[String, Object](
-      "discoveryEnabled" -> Boolean.box(discoveryEnabled),
-      "engines" -> engines,
-      "count" -> Int.box(engines.size()),
-      "partial" -> Boolean.box(false),
-      "failedServers" -> Collections.emptyList[Object](),
-      "observedAt" -> Instant.now().toString).asJava
-
-  private def calculateEngineSpace(engine: Engine): String = {
-    val userOrGroup = engine.getSharelevel match {
-      case "GROUP" => frontendService.sessionManager.groupProvider.primaryGroup(
-          engine.getUser,
-          frontendService.getConf.getAll.asJava)
-      case _ => engine.getUser
-    }
-    val engineSpace =
-      s"${engine.getNamespace}_${engine.getVersion}_${engine.getSharelevel}_${engine.getEngineType}"
-    DiscoveryPaths.makePath(engineSpace, userOrGroup, engine.getSubdomain)
-  }
-
   private def lookupResult(
       result: java.util.Map[String, Object],
       resultName: String): McpSchema.CallToolResult = {
@@ -324,14 +247,20 @@ private[mcp] class KyuubiMcpTools(
         override def apply(
             context: McpTransportContext,
             request: McpSchema.CallToolRequest): McpSchema.CallToolResult = {
-          try {
-            handler(context, Option(request.arguments()).map(_.asScala.toMap).getOrElse(Map.empty))
-          } catch {
-            case e: IllegalArgumentException => failure(e.getMessage)
-            case NonFatal(e) =>
-              error(s"MCP tool $name failed for ${realUser(context)}", e)
-              failure("The tool could not complete the request.")
-          }
+          val startNanos = System.nanoTime()
+          val result =
+            try {
+              handler(
+                context,
+                Option(request.arguments()).map(_.asScala.toMap).getOrElse(Map.empty))
+            } catch {
+              case e: IllegalArgumentException => failure(e.getMessage)
+              case NonFatal(e) =>
+                error(s"MCP tool $name failed for ${auditContextValue(context, REAL_USER)}", e)
+                failure("The tool could not complete the request.")
+            }
+          audit(context, name, result, System.nanoTime() - startNanos)
+          result
         }
       })
       .build()
@@ -357,13 +286,18 @@ private[mcp] class KyuubiMcpTools(
       .isError(Boolean.box(true))
       .build()
 
-  private def accessDenied(message: String): McpSchema.CallToolResult = failure(message)
+  private def accessDenied(message: String): McpSchema.CallToolResult =
+    McpSchema.CallToolResult.builder()
+      .addTextContent(message)
+      .isError(Boolean.box(true))
+      .meta(Map[String, Object](AUDIT_STATUS -> "denied").asJava)
+      .build()
 
   private def inaccessibleResource(): McpSchema.CallToolResult =
     failure("The resource does not exist or is not accessible.")
 
-  private def principal(context: McpTransportContext): KyuubiMcpPrincipal =
-    KyuubiMcpPrincipal(
+  private def principal(context: McpTransportContext): DiagnosticPrincipal =
+    DiagnosticPrincipal(
       realUser(context),
       Option(context.get(CLIENT_IP)).map(_.toString).getOrElse(""),
       isAdministrator(context))
@@ -373,9 +307,59 @@ private[mcp] class KyuubiMcpTools(
 
   private def isAdministrator(context: McpTransportContext): Boolean =
     java.lang.Boolean.TRUE == context.get(ADMINISTRATOR)
+
+  private def audit(
+      context: McpTransportContext,
+      name: String,
+      result: McpSchema.CallToolResult,
+      elapsedNanos: Long): Unit = {
+    val structured = result.structuredContent() match {
+      case value: java.util.Map[_, _] => value.asInstanceOf[java.util.Map[String, Object]]
+      case _ => java.util.Collections.emptyMap[String, Object]()
+    }
+    val status = if (Option(result.meta()).exists(map => "denied" == map.get(AUDIT_STATUS))) {
+      "denied"
+    } else if (java.lang.Boolean.TRUE == structured.get("partial")) {
+      "partial"
+    } else if (java.lang.Boolean.TRUE == result.isError()) {
+      "error"
+    } else {
+      "success"
+    }
+    val elapsedMillis = TimeUnit.NANOSECONDS.toMillis(elapsedNanos)
+    val failedServers = structured.get("failedServers") match {
+      case values: java.util.Collection[_] => values.size()
+      case _ => 0
+    }
+    info(
+      s"MCP tool requestId=${auditContextValue(context, REQUEST_ID)} name=$name " +
+        s"user=${auditContextValue(context, REAL_USER)} " +
+        s"clientIp=${auditContextValue(context, CLIENT_IP)} status=$status " +
+        s"elapsedMs=$elapsedMillis count=${structured.get("count")} " +
+        s"truncated=${structured.get("truncated")} " +
+        s"discoveredServers=${structured.get("discoveredServers")} " +
+        s"respondedServers=${structured.get("respondedServers")} failedServers=$failedServers")
+    MetricsSystem.tracing { metrics =>
+      metrics.markMeter(MetricRegistry.name(MCP_TOOL_CALL_TOTAL, name, status))
+      metrics.updateTimer(
+        MetricRegistry.name(MCP_TOOL_CALL_TIME, name),
+        elapsedNanos,
+        TimeUnit.NANOSECONDS)
+    }
+  }
+
+  private def auditContextValue(context: McpTransportContext, name: String): String =
+    Option(context.get(name)).map { value =>
+      value.toString.iterator
+        .map(character => if (Character.isISOControl(character)) '?' else character)
+        .take(MAX_AUDIT_VALUE_LENGTH)
+        .mkString
+    }.getOrElse("")
 }
 
 private[mcp] object KyuubiMcpTools {
+  private val AUDIT_STATUS = "kyuubi.audit.status"
+  private val MAX_AUDIT_VALUE_LENGTH = 128
   private val READ_ONLY_ANNOTATIONS = McpSchema.ToolAnnotations.builder()
     .readOnlyHint(Boolean.box(true))
     .destructiveHint(Boolean.box(false))

@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.server.mcp
+package org.apache.kyuubi.server.diagnostics
 
 import java.time.Instant
+import java.util.Collections
 import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ExecutorService, TimeoutException, TimeUnit}
 import java.util.function.Supplier
 
@@ -28,33 +29,37 @@ import scala.util.control.NonFatal
 import com.fasterxml.jackson.core.`type`.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 
-import org.apache.kyuubi.Logging
-import org.apache.kyuubi.config.KyuubiConf.{FRONTEND_PROXY_HTTP_CLIENT_IP_HEADER, FRONTEND_REST_BIND_PORT}
+import org.apache.kyuubi.{KYUUBI_VERSION, Logging}
+import org.apache.kyuubi.client.api.v1.dto.Engine
+import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.ha.HighAvailabilityConf.HA_NAMESPACE
-import org.apache.kyuubi.ha.client.{DiscoveryPaths, ServiceDiscovery}
+import org.apache.kyuubi.ha.client.{DiscoveryPaths, ServiceDiscovery, ServiceNodeInfo}
 import org.apache.kyuubi.ha.client.DiscoveryClientProvider.withDiscoveryClient
+import org.apache.kyuubi.metrics.MetricsConstants.{DIAGNOSTICS_FANOUT_TIME, DIAGNOSTICS_PEER_FAILURE}
+import org.apache.kyuubi.metrics.MetricsSystem
 import org.apache.kyuubi.server.KyuubiRestFrontendService
 import org.apache.kyuubi.server.api.v1.InternalRestClient
 import org.apache.kyuubi.service.authentication.InternalSecurityAccessor
 import org.apache.kyuubi.util.ThreadUtils
 
 /**
- * Coordinates cluster-wide MCP diagnostics without recursively invoking the public MCP endpoint.
+ * Coordinates protocol-neutral, cluster-wide diagnostics through the authenticated internal
+ * endpoint.
  */
-private[mcp] class KyuubiMcpClusterDiagnostics(
+private[server] class ClusterDiagnosticService(
     frontendService: KyuubiRestFrontendService,
     objectMapper: ObjectMapper) extends Logging {
 
-  import KyuubiMcpClusterDiagnostics._
-  import KyuubiMcpLocalDiagnostics._
+  import ClusterDiagnosticService._
+  import DiagnosticService._
 
-  private val localDiagnostics = new KyuubiMcpLocalDiagnostics(frontendService, objectMapper)
+  private val localDiagnostics = new DiagnosticService(frontendService, objectMapper)
   private val (executor, fanoutMode) = newFanoutExecutor()
   private val clients = new ConcurrentHashMap[String, InternalRestClient]()
 
   def clusterOverview(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val fanout = executeAcrossCluster(CLUSTER_OVERVIEW, arguments, principal)
     val serverSummaries = fanout.responses.map(_.payload)
     val sessionCount = serverSummaries.map(intValue(_, "sessionCount")).sum
@@ -73,13 +78,67 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
 
   def listSessions(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val limit = boundedIntArgument(arguments, "limit", 100, 200)
     aggregateList(LIST_SESSIONS, arguments, principal, "sessions", "identifier", limit)
   }
 
+  def listEngines(
+      arguments: Map[String, AnyRef],
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
+    val requestedUser = stringArgument(arguments, "user")
+    val effectiveUser = requestedUser match {
+      case Some(user) if principal.administrator => user
+      case Some(user) if user != principal.realUser =>
+        throw new IllegalArgumentException("The requested user is not accessible.")
+      case _ => principal.realUser
+    }
+
+    val clonedConf = frontendService.getConf.clone
+    stringArgument(arguments, "engine_type").foreach(clonedConf.set(ENGINE_TYPE, _))
+    stringArgument(arguments, "share_level").foreach(clonedConf.set(ENGINE_SHARE_LEVEL, _))
+    stringArgument(arguments, "subdomain")
+      .foreach(value => clonedConf.set(ENGINE_SHARE_LEVEL_SUBDOMAIN, Some(value)))
+
+    val engine = new Engine(
+      KYUUBI_VERSION,
+      effectiveUser,
+      clonedConf.get(ENGINE_TYPE),
+      clonedConf.get(ENGINE_SHARE_LEVEL),
+      clonedConf.get(ENGINE_SHARE_LEVEL_SUBDOMAIN).getOrElse(""),
+      null,
+      clonedConf.get(HA_NAMESPACE),
+      Collections.emptyMap())
+
+    if (!ServiceDiscovery.supportServiceDiscovery(clonedConf)) {
+      return engineResult(discoveryEnabled = false, Collections.emptyList[AnyRef]())
+    }
+
+    val engineSpace = calculateEngineSpace(engine)
+    val engineNodes = ListBuffer[ServiceNodeInfo]()
+    withDiscoveryClient(clonedConf) { client =>
+      stringArgument(arguments, "subdomain") match {
+        case Some(_) => engineNodes ++= client.getServiceNodesInfo(engineSpace, silent = true)
+        case None if !client.pathNonExists(engineSpace) =>
+          client.getChildren(engineSpace).foreach { child =>
+            engineNodes ++= client.getServiceNodesInfo(s"$engineSpace/$child", silent = true)
+          }
+        case _ =>
+      }
+    }
+    val engines = engineNodes.map(node =>
+      Map[String, Object](
+        "version" -> engine.getVersion,
+        "user" -> engine.getUser,
+        "engineType" -> engine.getEngineType,
+        "shareLevel" -> engine.getSharelevel,
+        "subdomain" -> node.namespace.split("/").last,
+        "instance" -> node.instance).asJava).asJava
+    engineResult(discoveryEnabled = true, engines)
+  }
+
   def listServers(
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val fanout = executeAcrossCluster(GET_SERVER_RUNTIME, Map.empty, principal)
     val servers = fanout.responses.map(response =>
       Map[String, Object](
@@ -93,7 +152,7 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
   }
 
   def serverRuntime(
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val fanout = executeAcrossCluster(GET_SERVER_RUNTIME, Map.empty, principal)
     envelope(
       Map[String, Object](
@@ -104,28 +163,28 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
 
   def getSession(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     requiredStringArgument(arguments, "session_id")
     aggregateLookup(GET_SESSION, arguments, principal, "session")
   }
 
   def listOperations(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val limit = boundedIntArgument(arguments, "limit", 100, 200)
     aggregateList(LIST_OPERATIONS, arguments, principal, "operations", "identifier", limit)
   }
 
   def getOperation(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     requiredStringArgument(arguments, "operation_id")
     aggregateLookup(GET_OPERATION, arguments, principal, "operation")
   }
 
   def readOperationLog(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     requiredStringArgument(arguments, "operation_id")
     boundedIntArgument(arguments, "max_rows", 100, 1000)
     boundedIntArgument(arguments, "max_bytes", 64 * 1024, 256 * 1024)
@@ -134,7 +193,7 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
 
   def listServerLogs(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val limit = boundedIntArgument(arguments, "limit", 100, 200)
     val fanout = executeAcrossCluster(LIST_SERVER_LOGS, arguments, principal)
     val items = fanout.responses.flatMap(response => listValues(response.payload, "items"))
@@ -153,7 +212,7 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
 
   def readServerLog(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     requiredStringArgument(arguments, "log_id")
     boundedIntArgument(arguments, "max_lines", 200, 1000)
     boundedIntArgument(arguments, "max_bytes", 64 * 1024, 256 * 1024)
@@ -165,7 +224,7 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
   private def aggregateList(
       action: String,
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal,
+      principal: DiagnosticPrincipal,
       resultName: String,
       identifierName: String,
       limit: Int): java.util.Map[String, Object] = {
@@ -188,7 +247,7 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
   private def aggregateLookup(
       action: String,
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal,
+      principal: DiagnosticPrincipal,
       resultName: String): java.util.Map[String, Object] = {
     val fanout = executeAcrossCluster(action, arguments, principal)
     val found = fanout.responses.iterator.flatMap { response =>
@@ -211,7 +270,8 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
   private def executeAcrossCluster(
       action: String,
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): FanoutResult = {
+      principal: DiagnosticPrincipal): FanoutResult = MetricsSystem.timerTracing(
+    DIAGNOSTICS_FANOUT_TIME) {
     val discovery = discoverInstances()
     val allInstances = discovery.instances
     val instances = allInstances.take(MAX_CLUSTER_PEERS)
@@ -227,7 +287,7 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
     val remoteInstances = instances.filterNot(_ == localInstance)
     if (remoteInstances.nonEmpty && InternalSecurityAccessor.get() == null) {
       throw new IllegalStateException(
-        "Cluster MCP diagnostics require kyuubi.internal.security.enabled=true")
+        "Cluster diagnostics require kyuubi.internal.security.enabled=true")
     }
 
     val futures = instances.map { instance =>
@@ -260,23 +320,27 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
             future.cancel(true)
             failures += PeerFailure(instance, "timeout")
           case NonFatal(e) =>
-            debug(s"MCP diagnostic request to $instance failed", e)
+            debug(s"Diagnostic request to $instance failed", e)
             failures += PeerFailure(instance, "unavailable")
         }
       }
     }
-    FanoutResult(allInstances.size, omittedServers, responses.toSeq, failures.toSeq)
+    val result = FanoutResult(allInstances.size, omittedServers, responses.toSeq, failures.toSeq)
+    if (result.failures.nonEmpty) {
+      MetricsSystem.tracing(_.markMeter(DIAGNOSTICS_PEER_FAILURE, result.failures.size))
+    }
+    result
   }
 
   private def executeRemote(
       instance: String,
       action: String,
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val body = objectMapper.writeValueAsString(Map(
       "action" -> action,
       "arguments" -> arguments.asJava).asJava)
-    val response = internalClient(instance).executeMcpDiagnostic(
+    val response = internalClient(instance).executeDiagnostic(
       principal.realUser,
       principal.clientIp,
       body)
@@ -311,7 +375,7 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
         DiscoveryResult(instances, Seq.empty)
       } catch {
         case NonFatal(e) =>
-          debug("MCP service discovery failed; continuing with the local server", e)
+          debug("Diagnostic service discovery failed; continuing with the local server", e)
           DiscoveryResult(
             Seq(localInstance),
             Seq(PeerFailure("service-discovery", "unavailable")))
@@ -372,22 +436,46 @@ private[mcp] class KyuubiMcpClusterDiagnostics(
     }
   }
 
+  private def engineResult(
+      discoveryEnabled: Boolean,
+      engines: java.util.List[_]): java.util.Map[String, Object] =
+    Map[String, Object](
+      "discoveryEnabled" -> Boolean.box(discoveryEnabled),
+      "engines" -> engines,
+      "count" -> Int.box(engines.size()),
+      "partial" -> Boolean.box(false),
+      "failedServers" -> Collections.emptyList[Object](),
+      "observedAt" -> Instant.now().toString).asJava
+
+  private def calculateEngineSpace(engine: Engine): String = {
+    val userOrGroup = engine.getSharelevel match {
+      case "GROUP" => frontendService.sessionManager.groupProvider.primaryGroup(
+          engine.getUser,
+          frontendService.getConf.getAll.asJava)
+      case _ => engine.getUser
+    }
+    val engineSpace =
+      s"${engine.getNamespace}_${engine.getVersion}_${engine.getSharelevel}_${engine.getEngineType}"
+    DiscoveryPaths.makePath(engineSpace, userOrGroup, engine.getSubdomain)
+  }
+
   private def newFanoutExecutor(): (ExecutorService, String) = {
-    if (Runtime.version().feature() >= 21) {
-      info("MCP cluster diagnostics will use bounded Java virtual threads")
+    val javaVersion = System.getProperty("java.specification.version").split("\\.").last.toInt
+    if (javaVersion >= 21) {
+      info("Cluster diagnostics will use bounded Java virtual threads")
       ThreadUtils.newBoundedVirtualThreadPerTaskExecutor(
         MAX_CLUSTER_PEERS,
-        "mcp-cluster-diagnostics") -> "virtual_threads"
+        "cluster-diagnostics") -> "virtual_threads"
     } else {
-      info("MCP cluster diagnostics will use a bounded platform thread pool")
+      info("Cluster diagnostics will use a bounded platform thread pool")
       ThreadUtils.newDaemonFixedThreadPool(
         MAX_CONCURRENT_PEERS,
-        "mcp-cluster-diagnostics") -> "platform_pool"
+        "cluster-diagnostics") -> "platform_pool"
     }
   }
 }
 
-private[mcp] object KyuubiMcpClusterDiagnostics {
+private[server] object ClusterDiagnosticService {
   private val MAX_CONCURRENT_PEERS = 16
   private val MAX_CLUSTER_PEERS = 64
   private val PEER_CONNECT_TIMEOUT_MS = 1500

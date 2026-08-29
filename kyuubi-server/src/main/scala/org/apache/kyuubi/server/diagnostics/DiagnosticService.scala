@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.server.mcp
+package org.apache.kyuubi.server.diagnostics
 
 import java.lang.management.ManagementFactory
 
@@ -31,27 +31,27 @@ import org.apache.kyuubi.server.KyuubiRestFrontendService
 import org.apache.kyuubi.server.api.ApiUtils
 import org.apache.kyuubi.session.{KyuubiSession, SessionHandle}
 
-private[server] case class KyuubiMcpPrincipal(
+private[server] case class DiagnosticPrincipal(
     realUser: String,
     clientIp: String,
     administrator: Boolean)
 
 /**
- * Node-local diagnostic primitives. Public MCP tools never expose these methods directly: the
- * cluster coordinator invokes them locally or through the authenticated internal REST endpoint.
+ * Node-local diagnostic primitives invoked by the cluster coordinator locally or through the
+ * authenticated internal REST endpoint.
  */
-private[server] class KyuubiMcpLocalDiagnostics(
+private[server] class DiagnosticService(
     frontendService: KyuubiRestFrontendService,
     objectMapper: ObjectMapper) {
 
-  import KyuubiMcpLocalDiagnostics._
+  import DiagnosticService._
 
-  private val logSandbox = new KyuubiMcpLogSandbox(frontendService)
+  private val logSandbox = new ServerLogAccessor(frontendService)
 
   def execute(
       action: String,
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = action match {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = action match {
     case CLUSTER_OVERVIEW => clusterOverview(arguments, principal)
     case LIST_SESSIONS => listSessions(arguments, principal)
     case GET_SESSION => getSession(arguments, principal)
@@ -66,7 +66,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
 
   private def clusterOverview(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val requestedUser = stringArgument(arguments, "user")
     if (requestedUser.exists(_ != principal.realUser) && !principal.administrator) {
       throw new IllegalArgumentException("The requested user is not accessible.")
@@ -97,7 +97,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
 
   private def listSessions(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val requestedUser = stringArgument(arguments, "user")
     if (requestedUser.exists(_ != principal.realUser) && !principal.administrator) {
       throw new IllegalArgumentException("The requested user is not accessible.")
@@ -119,7 +119,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
 
   private def getSession(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val session =
       try {
         val sessionId = requiredStringArgument(arguments, "session_id")
@@ -136,7 +136,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
 
   private def listOperations(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val requestedUser = stringArgument(arguments, "user")
     if (requestedUser.exists(_ != principal.realUser) && !principal.administrator) {
       throw new IllegalArgumentException("The requested user is not accessible.")
@@ -160,7 +160,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
 
   private def getOperation(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val operationId = requiredStringArgument(arguments, "operation_id")
     optionalValue(accessibleOperation(operationId, principal).map(operation =>
       safeOperationData(ApiUtils.operationData(operation))))
@@ -168,7 +168,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
 
   private def readOperationLog(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val operationId = requiredStringArgument(arguments, "operation_id")
     accessibleOperation(operationId, principal) match {
       case Some(_) =>
@@ -203,7 +203,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
   }
 
   private def serverRuntime(
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     if (!principal.administrator) {
       throw new IllegalArgumentException(
         "Inspecting Kyuubi Server runtime metrics requires administrator permission.")
@@ -241,7 +241,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
 
   private def accessibleOperation(
       operationId: String,
-      principal: KyuubiMcpPrincipal): Option[KyuubiOperation] = {
+      principal: DiagnosticPrincipal): Option[KyuubiOperation] = {
     try {
       frontendService.sessionManager.operationManager.getOperation(OperationHandle(
         operationId)) match {
@@ -260,7 +260,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
       "found" -> Boolean.box(value.nonEmpty),
       "value" -> value.orNull).asJava
 
-  private def canAccess(principal: KyuubiMcpPrincipal, owner: String): Boolean =
+  private def canAccess(principal: DiagnosticPrincipal, owner: String): Boolean =
     principal.administrator || owner == principal.realUser
 
   private def safeSessionData(value: Object): java.util.Map[String, Object] =
@@ -270,7 +270,7 @@ private[server] class KyuubiMcpLocalDiagnostics(
     safeOperationProjection(objectMapper.convertValue(value, MAP_TYPE))
 }
 
-private[server] object KyuubiMcpLocalDiagnostics {
+private[server] object DiagnosticService {
   val CLUSTER_OVERVIEW = "get_cluster_overview"
   val LIST_SESSIONS = "list_sessions"
   val GET_SESSION = "get_session"
@@ -332,7 +332,7 @@ private[server] object KyuubiMcpLocalDiagnostics {
     var truncated = false
     source.foreach { rawLine =>
       if (filter.forall(value => rawLine.toLowerCase(java.util.Locale.ROOT).contains(value))) {
-        val line = KyuubiMcpLogSandbox.redact(rawLine)
+        val line = ServerLogAccessor.redact(rawLine)
         val lineSize = line.getBytes(java.nio.charset.StandardCharsets.UTF_8).length + 1
         if (lines.size >= maxRows || size + lineSize > maxBytes) {
           truncated = true

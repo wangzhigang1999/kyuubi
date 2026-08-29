@@ -61,8 +61,8 @@ class KyuubiRestFrontendServiceSuite extends RestFrontendTestHelper {
     assert(resp.readEntity(classOf[String]) === "pong")
   }
 
-  test("reject external access to the MCP diagnostic endpoint") {
-    val internalEndpointResponse = webTarget.path("/api/v1/mcp/diagnostics").request()
+  test("reject external access to the internal diagnostic endpoint") {
+    val internalEndpointResponse = webTarget.path("/api/v1/internal/diagnostics").request()
       .post(Entity.json("""{"action":"list_sessions","arguments":{}}"""))
     assert(internalEndpointResponse.getStatus === 403)
   }

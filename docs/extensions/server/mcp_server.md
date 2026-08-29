@@ -63,6 +63,11 @@ MCP client to obtain its password from secret storage. Do not place a password o
 Basic header in chat instructions, tool arguments, or source-controlled client configuration. The
 endpoint is stateless, so credentials are checked on each request.
 
+Each tool call writes one bounded audit record containing the request ID, tool name, authenticated
+user, client address, outcome, duration, and aggregate counts. Tool arguments, credentials, and log
+content are never written to that record. Dropwizard metrics expose per-tool call counts and
+durations plus cluster fan-out duration and peer failures.
+
 For a multi-instance cluster, also enable Kyuubi internal security. Peer fan-out uses the existing
 short-lived internal token and never forwards the caller's password:
 
@@ -135,6 +140,7 @@ problem.
 
 ## Transport limits
 
-The endpoint accepts stateless JSON-RPC over HTTP POST. It enforces a 64 KiB request limit, 1 MiB
-response limit, 64 concurrent requests, a 15-second request deadline, and a 5-second cluster
-fan-out deadline. Protocol and validation errors are JSON and do not include stack traces.
+The endpoint accepts stateless JSON-RPC over HTTP POST. It enforces a 64 KiB request limit and 1 MiB
+response limit measured as UTF-8 bytes, 64 concurrent requests, a 15-second request deadline, and a
+5-second cluster fan-out deadline. Protocol and validation errors are JSON and do not include stack
+traces.

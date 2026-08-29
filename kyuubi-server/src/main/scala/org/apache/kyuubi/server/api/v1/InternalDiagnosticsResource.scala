@@ -17,25 +17,29 @@
 
 package org.apache.kyuubi.server.api.v1
 
-import javax.ws.rs.{Consumes, ForbiddenException, POST, Produces}
+import javax.ws.rs.{Consumes, ForbiddenException, NotFoundException, POST, Produces}
 import javax.ws.rs.core.MediaType
 
 import scala.collection.JavaConverters._
 
 import com.fasterxml.jackson.databind.ObjectMapper
 
+import org.apache.kyuubi.config.KyuubiConf.FRONTEND_MCP_ENABLED
 import org.apache.kyuubi.server.api.ApiRequestContext
+import org.apache.kyuubi.server.diagnostics.{DiagnosticPrincipal, DiagnosticService}
 import org.apache.kyuubi.server.http.authentication.{AuthenticationFilter, AuthSchemes}
-import org.apache.kyuubi.server.mcp.{KyuubiMcpLocalDiagnostics, KyuubiMcpPrincipal}
 
 @Consumes(Array(MediaType.APPLICATION_JSON))
 @Produces(Array(MediaType.APPLICATION_JSON))
-private[v1] class McpDiagnosticsResource extends ApiRequestContext {
+private[v1] class InternalDiagnosticsResource extends ApiRequestContext {
 
   @POST
   def execute(request: java.util.Map[String, Object]): java.util.Map[String, Object] = {
     if (AuthenticationFilter.getAuthType != AuthSchemes.KYUUBI_INTERNAL.toString) {
       throw new ForbiddenException("The diagnostic endpoint only accepts Kyuubi internal access")
+    }
+    if (!fe.getConf.get(FRONTEND_MCP_ENABLED)) {
+      throw new NotFoundException("Cluster diagnostics are not enabled")
     }
 
     val action = Option(request.get("action"))
@@ -51,10 +55,10 @@ private[v1] class McpDiagnosticsResource extends ApiRequestContext {
       case None => Map.empty[String, AnyRef]
     }
     val realUser = fe.getRealUser()
-    val principal = KyuubiMcpPrincipal(
+    val principal = DiagnosticPrincipal(
       realUser,
       fe.getIpAddress,
       fe.isAdministrator(realUser))
-    new KyuubiMcpLocalDiagnostics(fe, new ObjectMapper()).execute(action, arguments, principal)
+    new DiagnosticService(fe, new ObjectMapper()).execute(action, arguments, principal)
   }
 }

@@ -55,6 +55,11 @@ object MetricsConstants {
   final val REST_CONN_FAIL: String = REST_CONN + "failed"
   final val REST_CONN_TOTAL: String = REST_CONN + "total"
 
+  final val MCP_TOOL_CALL_TOTAL: String = KYUUBI + "mcp.tool_call.total"
+  final val MCP_TOOL_CALL_TIME: String = KYUUBI + "mcp.tool_call.time"
+  final val DIAGNOSTICS_FANOUT_TIME: String = KYUUBI + "diagnostics.fanout.time"
+  final val DIAGNOSTICS_PEER_FAILURE: String = KYUUBI + "diagnostics.peer.failure"
+
   final private val ENGINE = KYUUBI + "engine."
   final val ENGINE_FAIL: String = ENGINE + "failed"
   final val ENGINE_STARTUP_TIME: String = ENGINE + "startup.time"

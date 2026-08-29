@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.server.mcp
+package org.apache.kyuubi.server.diagnostics
 
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
@@ -32,17 +32,17 @@ import org.apache.kyuubi.Logging
 import org.apache.kyuubi.server.KyuubiRestFrontendService
 
 /** Reads only regular log files discovered beneath the Kyuubi Server log directory. */
-private[server] class KyuubiMcpLogSandbox(frontendService: KyuubiRestFrontendService)
+private[server] class ServerLogAccessor(frontendService: KyuubiRestFrontendService)
   extends Logging {
 
-  import KyuubiMcpLocalDiagnostics._
-  import KyuubiMcpLogSandbox._
+  import DiagnosticService._
+  import ServerLogAccessor._
 
   private def serverInstance: String = frontendService.connectionUrl
 
   def list(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     requireAdministrator(principal)
     val roots = configuredRoots()
     val limit = boundedIntArgument(arguments, "limit", 100, MAX_LIST_RESULTS)
@@ -64,7 +64,7 @@ private[server] class KyuubiMcpLogSandbox(frontendService: KyuubiRestFrontendSer
 
   def read(
       arguments: Map[String, AnyRef],
-      principal: KyuubiMcpPrincipal): java.util.Map[String, Object] = {
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     requireAdministrator(principal)
     val logId = requiredStringArgument(arguments, "log_id")
     if (!LOG_ID_PATTERN.pattern.matcher(logId).matches()) {
@@ -77,7 +77,7 @@ private[server] class KyuubiMcpLogSandbox(frontendService: KyuubiRestFrontendSer
     discoverFiles(configuredRoots()).find(_.id == logId) match {
       case Some(file) =>
         val content = readTail(file.path, maxLines, maxBytes, contains)
-        info(s"MCP server log read allowed for user ${principal.realUser}, logId $logId")
+        info(s"Server log read allowed for user ${auditValue(principal.realUser)}")
         Map[String, Object](
           "found" -> Boolean.box(true),
           "value" -> Map[String, Object](
@@ -91,7 +91,7 @@ private[server] class KyuubiMcpLogSandbox(frontendService: KyuubiRestFrontendSer
             "maxLines" -> Int.box(maxLines),
             "maxBytes" -> Int.box(maxBytes)).asJava).asJava
       case None =>
-        warn(s"MCP server log read denied for user ${principal.realUser}, unknown logId")
+        warn(s"Server log read denied for user ${auditValue(principal.realUser)}")
         Map[String, Object](
           "found" -> Boolean.box(false),
           "value" -> null).asJava
@@ -131,7 +131,7 @@ private[server] class KyuubiMcpLogSandbox(frontendService: KyuubiRestFrontendSer
       }
     } catch {
       case NonFatal(e) =>
-        debug(s"Skipping an unreadable MCP server log under $KYUUBI_LOG_DIR $root", e)
+        debug(s"Skipping an unreadable server log under $KYUUBI_LOG_DIR $root", e)
         None
     }
   }
@@ -167,14 +167,19 @@ private[server] class KyuubiMcpLogSandbox(frontendService: KyuubiRestFrontendSer
     }
   }
 
-  private def requireAdministrator(principal: KyuubiMcpPrincipal): Unit = {
+  private def requireAdministrator(principal: DiagnosticPrincipal): Unit = {
     if (!principal.administrator) {
       throw new IllegalArgumentException("Server log access requires administrator permission.")
     }
   }
+
+  private def auditValue(value: String): String = value.iterator
+    .map(character => if (Character.isISOControl(character)) '?' else character)
+    .take(MAX_AUDIT_VALUE_LENGTH)
+    .mkString
 }
 
-private[server] object KyuubiMcpLogSandbox {
+private[server] object ServerLogAccessor {
   private val MAX_DIRECTORY_DEPTH = 4
   private val MAX_DISCOVERED_FILES = 2000
   private val MAX_LIST_RESULTS = 200
@@ -182,6 +187,7 @@ private[server] object KyuubiMcpLogSandbox {
   private val DEFAULT_READ_BYTES = 64 * 1024
   private val MAX_READ_BYTES = 256 * 1024
   private val MAX_LITERAL_LENGTH = 128
+  private val MAX_AUDIT_VALUE_LENGTH = 128
   private val KYUUBI_LOG_DIR = "KYUUBI_LOG_DIR"
   private val ALLOWED_LOG_EXTENSIONS = Set(".log", ".out", ".err")
   private val LOG_ID_PATTERN = "^[A-Za-z0-9_-]{43}$".r
@@ -217,7 +223,7 @@ private[server] object KyuubiMcpLogSandbox {
   private def boundedLiteralArgument(
       arguments: Map[String, AnyRef],
       name: String): Option[String] = {
-    val value = KyuubiMcpLocalDiagnostics.stringArgument(arguments, name)
+    val value = DiagnosticService.stringArgument(arguments, name)
     if (value.exists(_.length > MAX_LITERAL_LENGTH)) {
       throw new IllegalArgumentException(s"$name must not exceed $MAX_LITERAL_LENGTH characters")
     }

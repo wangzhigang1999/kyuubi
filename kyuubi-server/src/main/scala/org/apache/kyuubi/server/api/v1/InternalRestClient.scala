@@ -56,7 +56,7 @@ class InternalRestClient(
 
   private val internalBatchRestApi = new BatchRestApi(initKyuubiRestClient())
   private val internalBaseRestApi = new BaseRestApi(initKyuubiRestClient())
-  private val internalMcpRestClient = initKyuubiRestClient()
+  private val internalDiagnosticsRestClient = initKyuubiRestClient()
 
   def pingAble(user: String, clientIp: String): Boolean = withAuthUser(user) {
     Try {
@@ -96,12 +96,12 @@ class InternalRestClient(
     }
   }
 
-  def executeMcpDiagnostic(user: String, clientIp: String, body: String): String = {
+  def executeDiagnostic(user: String, clientIp: String, body: String): String = {
     withAuthUser(user) {
-      internalMcpRestClient.getHttpClient.post(
-        "mcp/diagnostics",
+      internalDiagnosticsRestClient.getHttpClient.post(
+        "internal/diagnostics",
         body,
-        internalMcpRestClient.getAuthHeader,
+        internalDiagnosticsRestClient.getAuthHeader,
         Map(proxyClientIpHeader -> clientIp).asJava)
     }
   }

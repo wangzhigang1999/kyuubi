@@ -27,6 +27,7 @@ import scala.collection.JavaConverters._
 import org.apache.kyuubi.{RestClientTestHelper, RestFrontendTestHelper, Utils}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
+import org.apache.kyuubi.server.diagnostics.{DiagnosticService, ServerLogAccessor}
 import org.apache.kyuubi.server.http.util.HttpAuthUtils.AUTHORIZATION_HEADER
 import org.apache.kyuubi.server.http.util.HttpAuthUtils.basicAuthorizationHeader
 import org.apache.kyuubi.service.authentication.UserDefineAuthenticationProviderImpl
@@ -151,6 +152,11 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     val oversized = oversizedResponse.readEntity(classOf[String])
     assert(oversized.contains("\"code\":-32600"))
     assert(!oversized.contains("padding"))
+
+    val oversizedUtf8Response = call(
+      """{"jsonrpc":"2.0","id":9,"method":"tools/list","params":{"padding":"""" +
+        ("界" * 22000) + "\"}}")
+    assert(oversizedUtf8Response.getStatus === 400)
   }
 
   test("MCP advertises only its read-only diagnostic tools") {
@@ -185,19 +191,19 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
       "exception" -> "token=secret",
       "ipAddr" -> "127.0.0.1").asJava
 
-    val session = KyuubiMcpLocalDiagnostics.safeSessionProjection(source)
+    val session = DiagnosticService.safeSessionProjection(source)
     assert(session.keySet().asScala === Set("identifier", "user"))
-    val operation = KyuubiMcpLocalDiagnostics.safeOperationProjection(source)
+    val operation = DiagnosticService.safeOperationProjection(source)
     assert(operation.keySet().asScala === Set("identifier", "state"))
 
     val logLine = "password=secret Bearer ey.secret token:another jdbc://user:pass@host"
-    val redacted = KyuubiMcpLogSandbox.redact(logLine)
+    val redacted = ServerLogAccessor.redact(logLine)
     assert(!redacted.contains("secret"))
     assert(!redacted.contains("another"))
     assert(!redacted.contains("user:pass"))
     assert(redacted.contains("[REDACTED]"))
 
-    val bounded = KyuubiMcpLocalDiagnostics.boundedRedactedLog(
+    val bounded = DiagnosticService.boundedRedactedLog(
       Seq("password=first", "safe line", "another line"),
       maxRows = 2,
       maxBytes = 100,
@@ -205,7 +211,7 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(bounded.lines.size === 2)
     assert(!bounded.lines.mkString.contains("first"))
     assert(bounded.truncated)
-    val oversizedLine = KyuubiMcpLocalDiagnostics.boundedRedactedLog(
+    val oversizedLine = DiagnosticService.boundedRedactedLog(
       Seq("a line larger than the budget"),
       maxRows = 10,
       maxBytes = 4,
