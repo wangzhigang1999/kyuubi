@@ -278,6 +278,7 @@ class KyuubiMcpServerLogSuite extends RestFrontendTestHelper {
     Seq(
       "server started",
       "password=top-secret",
+      "password=\"correct horse battery staple\"",
       "Authorization: Bearer abc.def.ghi",
       "query failed safely").mkString("\n").getBytes(StandardCharsets.UTF_8))
   Files.write(deniedFile, "must not be visible".getBytes(StandardCharsets.UTF_8))
@@ -303,12 +304,13 @@ class KyuubiMcpServerLogSuite extends RestFrontendTestHelper {
 
     val readResponse = call(
       s"""{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":""" +
-        s""""read_server_log","arguments":{"log_id":"$logId","max_lines":3}}}""")
+        s""""read_server_log","arguments":{"log_id":"$logId","max_lines":4}}}""")
     assert(readResponse.getStatus === 200)
     val content = readResponse.readEntity(classOf[String])
     assert(content.contains("query failed safely"))
     assert(content.contains("[REDACTED]"))
     assert(!content.contains("top-secret"))
+    assert(!content.contains("correct horse battery staple"))
     assert(!content.contains("abc.def.ghi"))
     assert(content.contains("\"truncated\":true"))
 

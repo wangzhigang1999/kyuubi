@@ -235,6 +235,19 @@ class OperationLog(path: Path) {
     toRowSet(res)
   }
 
+  /**
+   * Reads a point-in-time view without changing either of the cursors used by protocol clients.
+   */
+  private[kyuubi] def readSnapshot(from: Int, size: Int): TRowSet = synchronized {
+    if (!initialized) return ThriftUtils.newEmptyRowSet
+    val snapshotReader = new SeekableBufferedReader(Seq(path) ++ extraPaths)
+    try {
+      toRowSet(snapshotReader.readLine(from, size).toList.asJava)
+    } finally {
+      snapshotReader.close()
+    }
+  }
+
   def close(): Unit = synchronized {
     closeExtraReaders()
 

@@ -26,10 +26,11 @@ import scala.util.control.NonFatal
 import com.fasterxml.jackson.core.`type`.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 
-import org.apache.kyuubi.operation.{FetchOrientation, KyuubiOperation, OperationHandle}
+import org.apache.kyuubi.operation.{KyuubiOperation, OperationHandle}
 import org.apache.kyuubi.server.KyuubiRestFrontendService
 import org.apache.kyuubi.server.api.ApiUtils
 import org.apache.kyuubi.session.{KyuubiSession, SessionHandle}
+import org.apache.kyuubi.util.ThriftUtils
 
 private[server] case class DiagnosticPrincipal(
     realUser: String,
@@ -171,18 +172,16 @@ private[server] class DiagnosticService(
       principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val operationId = requiredStringArgument(arguments, "operation_id")
     accessibleOperation(operationId, principal) match {
-      case Some(_) =>
+      case Some(operation) =>
         val maxRows = boundedIntArgument(arguments, "max_rows", 100, 1000)
         val maxBytes = boundedIntArgument(arguments, "max_bytes", 64 * 1024, 256 * 1024)
         val contains = stringArgument(arguments, "contains")
         if (contains.exists(_.length > 128)) {
           throw new IllegalArgumentException("contains must not exceed 128 characters")
         }
-        val result = frontendService.sessionManager.operationManager.getOperationLogRowSet(
-          OperationHandle(operationId),
-          FetchOrientation.FETCH_FIRST,
-          maxRows + 1)
-        val rowSet = result.getResults
+        val rowSet = operation.getOperationLog
+          .map(_.readSnapshot(0, maxRows + 1))
+          .getOrElse(ThriftUtils.EMPTY_ROW_SET)
         val sourceLines = if (rowSet.getColumns == null || rowSet.getColumns.isEmpty) {
           Seq.empty[String]
         } else {

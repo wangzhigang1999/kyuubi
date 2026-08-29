@@ -193,7 +193,8 @@ private[server] object ServerLogAccessor {
   private val LOG_ID_PATTERN = "^[A-Za-z0-9_-]{43}$".r
   private val SECRET_ASSIGNMENT =
     ("(?i)([\\\"']?(?:password|passwd|pwd|token|secret|authorization|access[_-]?key|" +
-      "private[_-]?key)[\\\"']?\\s*[:=]\\s*[\\\"']?)([^\\s\\\"',;}]+)").r
+      "private[_-]?key)[\\\"']?\\s*[:=]\\s*)" +
+      "(?:\\\"(?:\\\\.|[^\\\"\\\\])*\\\"|'(?:\\\\.|[^'\\\\])*'|[^\\s,;}]+)").r
   private val AUTHORIZATION = "(?i)\\b(Basic|Bearer)\\s+[A-Za-z0-9._~+/-]+=*".r
   private val URI_CREDENTIALS = "(://)[^\\s/:@]+:[^\\s/@]+@".r
   private val ACCESS_KEY = "\\bAKIA[0-9A-Z]{16}\\b".r

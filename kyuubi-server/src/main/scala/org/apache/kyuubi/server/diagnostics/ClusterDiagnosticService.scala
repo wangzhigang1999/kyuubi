@@ -86,6 +86,7 @@ private[server] class ClusterDiagnosticService(
   def listEngines(
       arguments: Map[String, AnyRef],
       principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
+    val limit = boundedIntArgument(arguments, "limit", 100, MAX_ENGINE_RESULTS)
     val requestedUser = stringArgument(arguments, "user")
     val effectiveUser = requestedUser match {
       case Some(user) if principal.administrator => user
@@ -111,22 +112,46 @@ private[server] class ClusterDiagnosticService(
       Collections.emptyMap())
 
     if (!ServiceDiscovery.supportServiceDiscovery(clonedConf)) {
-      return engineResult(discoveryEnabled = false, Collections.emptyList[AnyRef]())
+      return engineResult(
+        discoveryEnabled = false,
+        Collections.emptyList[AnyRef](),
+        limit = limit)
     }
 
     val engineSpace = calculateEngineSpace(engine)
     val engineNodes = ListBuffer[ServiceNodeInfo]()
-    withDiscoveryClient(clonedConf) { client =>
-      stringArgument(arguments, "subdomain") match {
-        case Some(_) => engineNodes ++= client.getServiceNodesInfo(engineSpace, silent = true)
-        case None if !client.pathNonExists(engineSpace) =>
-          client.getChildren(engineSpace).foreach { child =>
-            engineNodes ++= client.getServiceNodesInfo(s"$engineSpace/$child", silent = true)
-          }
-        case _ =>
+    val failures = ListBuffer[PeerFailure]()
+    var truncated = false
+    try {
+      withDiscoveryClient(clonedConf) { client =>
+        val namespaces = stringArgument(arguments, "subdomain") match {
+          case Some(_) if !client.pathNonExists(engineSpace) => Seq(engineSpace)
+          case Some(_) => Seq.empty
+          case None if !client.pathNonExists(engineSpace) =>
+            val children = client.getChildren(engineSpace).sorted
+            if (children.size > MAX_ENGINE_NAMESPACES) {
+              truncated = true
+            }
+            children.take(MAX_ENGINE_NAMESPACES).map(child => s"$engineSpace/$child")
+          case _ => Seq.empty
+        }
+        val namespaceIterator = namespaces.iterator
+        while (namespaceIterator.hasNext && engineNodes.size <= limit) {
+          val remaining = limit + 1 - engineNodes.size
+          engineNodes ++= client.getServiceNodesInfoOrThrow(
+            namespaceIterator.next(),
+            Some(remaining))
+        }
+        if (namespaceIterator.hasNext || engineNodes.size > limit) {
+          truncated = true
+        }
       }
+    } catch {
+      case NonFatal(e) =>
+        debug("Engine service discovery failed", e)
+        failures += PeerFailure("service-discovery", "unavailable")
     }
-    val engines = engineNodes.map(node =>
+    val engines = engineNodes.take(limit).map(node =>
       Map[String, Object](
         "version" -> engine.getVersion,
         "user" -> engine.getUser,
@@ -134,7 +159,12 @@ private[server] class ClusterDiagnosticService(
         "shareLevel" -> engine.getSharelevel,
         "subdomain" -> node.namespace.split("/").last,
         "instance" -> node.instance).asJava).asJava
-    engineResult(discoveryEnabled = true, engines)
+    engineResult(
+      discoveryEnabled = true,
+      engines,
+      limit,
+      truncated,
+      failures.toSeq)
   }
 
   def listServers(
@@ -219,7 +249,11 @@ private[server] class ClusterDiagnosticService(
     aggregateLookup(READ_SERVER_LOG, arguments, principal, "serverLog")
   }
 
-  def close(): Unit = ThreadUtils.shutdown(executor)
+  def close(): Unit = {
+    ThreadUtils.shutdown(executor)
+    clients.values().asScala.foreach(_.close())
+    clients.clear()
+  }
 
   private def aggregateList(
       action: String,
@@ -326,6 +360,9 @@ private[server] class ClusterDiagnosticService(
       }
     }
     val result = FanoutResult(allInstances.size, omittedServers, responses.toSeq, failures.toSeq)
+    if (discovery.failures.isEmpty) {
+      pruneClients(allInstances.toSet)
+    }
     if (result.failures.nonEmpty) {
       MetricsSystem.tracing(_.markMeter(DIAGNOSTICS_PEER_FAILURE, result.failures.size))
     }
@@ -360,6 +397,14 @@ private[server] class ClusterDiagnosticService(
           requestMaxAttempts = 1,
           requestAttemptWait = 0))
 
+  private def pruneClients(activeInstances: Set[String]): Unit = {
+    clients.asScala.foreach { case (instance, client) =>
+      if (!activeInstances.contains(instance) && clients.remove(instance, client)) {
+        client.close()
+      }
+    }
+  }
+
   private def discoverInstances(): DiscoveryResult = {
     val conf = frontendService.getConf
     val localInstance = normalizeInstance(frontendService.connectionUrl)
@@ -368,7 +413,12 @@ private[server] class ClusterDiagnosticService(
       val restPort = conf.get(FRONTEND_REST_BIND_PORT)
       try {
         val instances = withDiscoveryClient(conf) { client =>
-          (client.getServiceNodesInfo(serverSpace)
+          val nodes = if (client.pathNonExists(serverSpace)) {
+            Seq.empty
+          } else {
+            client.getServiceNodesInfoOrThrow(serverSpace)
+          }
+          (nodes
             .map(node => normalizeInstance(formatHostPort(node.host, restPort)))
             :+ localInstance).distinct.sorted
         }
@@ -438,14 +488,24 @@ private[server] class ClusterDiagnosticService(
 
   private def engineResult(
       discoveryEnabled: Boolean,
-      engines: java.util.List[_]): java.util.Map[String, Object] =
+      engines: java.util.List[_],
+      limit: Int,
+      truncated: Boolean = false,
+      failures: Seq[PeerFailure] = Seq.empty): java.util.Map[String, Object] = {
+    val failedServers = failures.map(failure =>
+      Map[String, Object](
+        "server" -> failure.instance,
+        "reason" -> failure.reason).asJava).asJava
     Map[String, Object](
       "discoveryEnabled" -> Boolean.box(discoveryEnabled),
       "engines" -> engines,
       "count" -> Int.box(engines.size()),
-      "partial" -> Boolean.box(false),
-      "failedServers" -> Collections.emptyList[Object](),
+      "limit" -> Int.box(limit),
+      "truncated" -> Boolean.box(truncated),
+      "partial" -> Boolean.box(truncated || failures.nonEmpty),
+      "failedServers" -> failedServers,
       "observedAt" -> Instant.now().toString).asJava
+  }
 
   private def calculateEngineSpace(engine: Engine): String = {
     val userOrGroup = engine.getSharelevel match {
@@ -478,6 +538,8 @@ private[server] class ClusterDiagnosticService(
 private[server] object ClusterDiagnosticService {
   private val MAX_CONCURRENT_PEERS = 16
   private val MAX_CLUSTER_PEERS = 64
+  private val MAX_ENGINE_NAMESPACES = 200
+  private val MAX_ENGINE_RESULTS = 200
   private val PEER_CONNECT_TIMEOUT_MS = 1500
   private val PEER_SOCKET_TIMEOUT_MS = 4000
   private val FANOUT_DEADLINE_MS = 5000L

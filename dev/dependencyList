@@ -56,6 +56,7 @@ hk2-utils/2.6.1//hk2-utils-2.6.1.jar
 httpclient/4.5.14//httpclient-4.5.14.jar
 httpcore/4.4.16//httpcore-4.4.16.jar
 httpmime/4.5.14//httpmime-4.5.14.jar
+itu/1.14.0//itu-1.14.0.jar
 j2objc-annotations/2.8//j2objc-annotations-2.8.jar
 jackson-annotations/2.20//jackson-annotations-2.20.jar
 jackson-core/2.20.1//jackson-core-2.20.1.jar
@@ -97,6 +98,7 @@ jetty-servlet/9.4.57.v20241219//jetty-servlet-9.4.57.v20241219.jar
 jetty-util-ajax/9.4.57.v20241219//jetty-util-ajax-9.4.57.v20241219.jar
 jetty-util/9.4.57.v20241219//jetty-util-9.4.57.v20241219.jar
 jline/2.14.6//jline-2.14.6.jar
+json-schema-validator/2.0.4//json-schema-validator-2.0.4.jar
 jspecify/1.0.0//jspecify-1.0.0.jar
 jul-to-slf4j/1.7.36//jul-to-slf4j-1.7.36.jar
 kafka-clients/3.9.2//kafka-clients-3.9.2.jar
@@ -131,6 +133,8 @@ log4j-core/2.26.1//log4j-core-2.26.1.jar
 log4j-layout-template-json/2.26.1//log4j-layout-template-json-2.26.1.jar
 log4j-slf4j-impl/2.26.1//log4j-slf4j-impl-2.26.1.jar
 logging-interceptor/3.12.12//logging-interceptor-3.12.12.jar
+mcp-core/2.0.1//mcp-core-2.0.1.jar
+mcp-json-jackson2/2.0.1//mcp-json-jackson2-2.0.1.jar
 metrics-annotation/4.2.30//metrics-annotation-4.2.30.jar
 metrics-core/4.2.30//metrics-core-4.2.30.jar
 metrics-jetty9/4.2.30//metrics-jetty9-4.2.30.jar
@@ -165,6 +169,8 @@ postgresql/42.7.12//postgresql-42.7.12.jar
 proto-google-common-protos/2.59.2//proto-google-common-protos-2.59.2.jar
 protobuf-java-util/3.25.8//protobuf-java-util-3.25.8.jar
 protobuf-java/3.25.8//protobuf-java-3.25.8.jar
+reactive-streams/1.0.4//reactive-streams-1.0.4.jar
+reactor-core/3.7.0//reactor-core-3.7.0.jar
 scala-library/2.12.19//scala-library-2.12.19.jar
 scopt_2.12/4.1.0//scopt_2.12-4.1.0.jar
 simpleclient/0.16.0//simpleclient-0.16.0.jar

@@ -76,10 +76,11 @@ kyuubi.internal.security.enabled=true
 kyuubi.internal.security.secret.provider=zookeeper
 ```
 
-All instances must share the same HA namespace and internal-security secret, and their REST ports
-must be reachable from one another. If discovery or a peer fails, tools return available evidence
-with `partial=true` and a bounded `failedServers` list instead of silently treating the missing
-node as empty.
+All instances must share the same HA namespace, internal-security secret, and REST bind port, and
+their REST ports must be reachable from one another. The current HA server record advertises the
+primary Thrift endpoint, so peer REST addresses use each discovered host plus the common REST bind
+port. If discovery or a peer fails, tools return available evidence with `partial=true` and a
+bounded `failedServers` list instead of silently treating the missing node as empty.
 
 A request fans out to at most 64 discovered servers. If discovery returns more instances, the
 response remains explicit: `discoveredServers` reports the full count, `partial` is `true`, and the
@@ -92,7 +93,7 @@ response reports `omittedServers` plus a bounded `failedServers` summary.
 | `get_cluster_overview` | User; administrator may select a user  | Summarize reachable servers and live session and operation states                    |
 | `list_servers`         | Administrator                          | Verify every discovered Kyuubi Server is reachable                                   |
 | `get_server_runtime`   | Administrator                          | Inspect a fixed projection of JVM, heap, thread, uptime, processor, and load metrics |
-| `list_engines`         | User; administrator may select a user  | List live engines from Kyuubi service discovery                                      |
+| `list_engines`         | User; administrator may select a user  | List a bounded set of live engines from Kyuubi service discovery                     |
 | `list_sessions`        | Owner; administrator may select a user | List live sessions with bounded filters                                              |
 | `get_session`          | Owner or administrator                 | Find one live session on any server                                                  |
 | `list_operations`      | Owner; administrator may select a user | List live operations with session and state filters                                  |
@@ -105,12 +106,16 @@ All tools are annotated as read-only, idempotent, non-destructive, and closed-wo
 parameters have schema-enforced limits. Identifiers should come from a preceding list call. Missing
 and inaccessible objects intentionally return the same public error.
 
-Every cluster response includes:
+Tools that fan out to Kyuubi Server instances include:
 
 - `partial`, `failedServers`, `discoveredServers`, `omittedServers`, `fanoutLimit`, and
   `respondedServers`;
 - `observedAt`, because results are point-in-time observations;
 - `fanoutMode`, either `platform_pool` or `virtual_threads`.
+
+`list_engines` reads the shared service registry directly instead of contacting every server. Its
+response includes `discoveryEnabled`, `partial`, `failedServers`, `observedAt`, `limit`, and
+`truncated`. A registry failure is reported as partial rather than as an empty healthy result.
 
 ## Server log sandbox
 

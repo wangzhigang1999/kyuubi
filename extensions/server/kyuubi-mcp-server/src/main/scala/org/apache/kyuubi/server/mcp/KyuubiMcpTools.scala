@@ -93,7 +93,8 @@ private[mcp] class KyuubiMcpTools(
         "share_level" -> enumProperty(
           "Engine share level.",
           ShareLevel.values.map(_.toString).toSeq),
-        "subdomain" -> boundedStringProperty("Engine share-level subdomain."))) {
+        "subdomain" -> boundedStringProperty("Engine share-level subdomain."),
+        "limit" -> integerProperty("Maximum results from service discovery.", 200))) {
       (context, arguments) =>
         clusterListResult(context, arguments) {
           clusterDiagnostics.listEngines(arguments, principal(context))
