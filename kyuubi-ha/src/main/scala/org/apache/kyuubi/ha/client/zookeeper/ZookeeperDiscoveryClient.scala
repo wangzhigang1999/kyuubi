@@ -197,28 +197,34 @@ class ZookeeperDiscoveryClient(conf: KyuubiConf) extends DiscoveryClient {
       sizeOpt: Option[Int] = None,
       silent: Boolean = false): Seq[ServiceNodeInfo] = {
     try {
-      val hosts = zkClient.getChildren.forPath(namespace)
-      val size = sizeOpt.getOrElse(hosts.size())
-      hosts.asScala.takeRight(size).map { p =>
-        val path = ZKPaths.makePath(namespace, p)
-        val instance = new String(zkClient.getData.forPath(path), StandardCharsets.UTF_8)
-        val (host, port) = DiscoveryClient.parseInstanceHostPort(instance)
-        val attributes =
-          p.split(";").map(_.split("=", 2)).filter(_.length == 2).map(kv =>
-            (kv.head, kv.last)).toMap
-        val version = attributes.get("version")
-        val engineRefId = attributes.get("refId")
-        val engineIdStr = attributes.get(KYUUBI_ENGINE_ID).map(" engine id:" + _).getOrElse("")
-        info(s"Get service instance:$instance$engineIdStr and version:${version.getOrElse("")} " +
-          s"under $namespace")
-        ServiceNodeInfo(namespace, p, host, port, version, engineRefId, attributes)
-      }.toSeq
+      getServiceNodesInfoOrThrow(namespace, sizeOpt)
     } catch {
       case _: Exception if silent => Nil
       case e: Exception =>
         error(s"Failed to get service node info", e)
         Nil
     }
+  }
+
+  override private[kyuubi] def getServiceNodesInfoOrThrow(
+      namespace: String,
+      sizeOpt: Option[Int]): Seq[ServiceNodeInfo] = {
+    val hosts = zkClient.getChildren.forPath(namespace)
+    val size = sizeOpt.getOrElse(hosts.size())
+    hosts.asScala.takeRight(size).map { p =>
+      val path = ZKPaths.makePath(namespace, p)
+      val instance = new String(zkClient.getData.forPath(path), StandardCharsets.UTF_8)
+      val (host, port) = DiscoveryClient.parseInstanceHostPort(instance)
+      val attributes =
+        p.split(";").map(_.split("=", 2)).filter(_.length == 2).map(kv =>
+          (kv.head, kv.last)).toMap
+      val version = attributes.get("version")
+      val engineRefId = attributes.get("refId")
+      val engineIdStr = attributes.get(KYUUBI_ENGINE_ID).map(" engine id:" + _).getOrElse("")
+      info(s"Get service instance:$instance$engineIdStr and version:${version.getOrElse("")} " +
+        s"under $namespace")
+      ServiceNodeInfo(namespace, p, host, port, version, engineRefId, attributes)
+    }.toSeq
   }
 
   override def registerService(

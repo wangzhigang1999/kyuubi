@@ -220,27 +220,33 @@ class EtcdDiscoveryClient(conf: KyuubiConf) extends DiscoveryClient {
       sizeOpt: Option[Int] = None,
       silent: Boolean = false): Seq[ServiceNodeInfo] = {
     try {
-      val hosts = getChildren(DiscoveryPaths.makePath(null, namespace))
-      val size = sizeOpt.getOrElse(hosts.size)
-      hosts.takeRight(size).map { p =>
-        val path = DiscoveryPaths.makePath(namespace, p)
-        val instance = new String(getData(path), UTF_8)
-        val (host, port) = DiscoveryClient.parseInstanceHostPort(instance)
-        val attributes =
-          p.split(";").map(_.split("=", 2)).filter(_.length == 2).map(kv =>
-            (kv.head, kv.last)).toMap
-        val version = attributes.get("version")
-        val engineRefId = attributes.get("refId")
-        val engineIdStr = attributes.get(KYUUBI_ENGINE_ID).map(" engine id:" + _).getOrElse("")
-        info(s"Get service instance:$instance$engineIdStr and version:${version.getOrElse("")} " +
-          s"under $namespace")
-        ServiceNodeInfo(namespace, p, host, port, version, engineRefId, attributes)
-      }
+      getServiceNodesInfoOrThrow(namespace, sizeOpt)
     } catch {
       case _: Exception if silent => Nil
       case e: Exception =>
         error(s"Failed to get service node info", e)
         Nil
+    }
+  }
+
+  override private[kyuubi] def getServiceNodesInfoOrThrow(
+      namespace: String,
+      sizeOpt: Option[Int]): Seq[ServiceNodeInfo] = {
+    val hosts = getChildren(DiscoveryPaths.makePath(null, namespace))
+    val size = sizeOpt.getOrElse(hosts.size)
+    hosts.takeRight(size).map { p =>
+      val path = DiscoveryPaths.makePath(namespace, p)
+      val instance = new String(getData(path), UTF_8)
+      val (host, port) = DiscoveryClient.parseInstanceHostPort(instance)
+      val attributes =
+        p.split(";").map(_.split("=", 2)).filter(_.length == 2).map(kv =>
+          (kv.head, kv.last)).toMap
+      val version = attributes.get("version")
+      val engineRefId = attributes.get("refId")
+      val engineIdStr = attributes.get(KYUUBI_ENGINE_ID).map(" engine id:" + _).getOrElse("")
+      info(s"Get service instance:$instance$engineIdStr and version:${version.getOrElse("")} " +
+        s"under $namespace")
+      ServiceNodeInfo(namespace, p, host, port, version, engineRefId, attributes)
     }
   }
 

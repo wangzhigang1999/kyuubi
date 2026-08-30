@@ -1,0 +1,204 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.kyuubi.server.mcp.tool;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyDescription;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import org.apache.kyuubi.server.mcp.KyuubiMcpDiagnostics;
+import org.apache.kyuubi.server.mcp.McpToolProperty;
+
+/** Cluster-wide live operation listing. */
+public final class ListOperationsTool
+    implements KyuubiMcpTool<ListOperationsTool.Args, ListOperationsTool.Response> {
+
+  public static final String NAME = "list_operations";
+  private final KyuubiMcpDiagnostics diagnostics;
+
+  public ListOperationsTool(KyuubiMcpDiagnostics diagnostics) {
+    this.diagnostics = diagnostics;
+  }
+
+  @Override
+  public String name() {
+    return NAME;
+  }
+
+  @Override
+  public String description() {
+    return "List live operations visible to the authenticated user. Prefer one relevant state "
+        + "filter instead of exhaustive parallel calls. Results are ordered by creation time, "
+        + "newest first. Set server to query one discovered instance without cluster fanout. "
+        + "When partial is true, an empty list means no matches on responded servers only.";
+  }
+
+  @Override
+  public Class<Args> argumentsType() {
+    return Args.class;
+  }
+
+  @Override
+  public Class<Response> responseType() {
+    return Response.class;
+  }
+
+  @Override
+  public KyuubiMcpTool.Result<Response> call(KyuubiMcpTool.Caller caller, Args arguments) {
+    if (arguments.user() != null
+        && !arguments.user().equals(caller.realUser())
+        && !caller.administrator()) {
+      return KyuubiMcpTool.Result.denied("The requested user is not accessible.");
+    }
+    Map<String, Object> values = new HashMap<>();
+    put(values, "user", arguments.user());
+    put(values, "session_id", arguments.sessionId());
+    put(values, "state", arguments.state());
+    put(values, "created_after", arguments.createdAfter());
+    put(values, "created_before", arguments.createdBefore());
+    put(values, "limit", arguments.limit());
+    put(values, "server", arguments.server());
+    return KyuubiMcpTool.Result.success(
+        diagnostics.response(diagnostics.listOperations(values, caller), Response.class));
+  }
+
+  private static void put(Map<String, Object> values, String name, Object value) {
+    if (value != null) {
+      values.put(name, value instanceof Enum<?> ? value.toString() : value);
+    }
+  }
+
+  public record Args(
+      @JsonProperty("user")
+          @JsonPropertyDescription(
+              "User to inspect. A different user requires administrator permission.")
+          @McpToolProperty(maxLength = 256)
+          String user,
+      @JsonProperty("session_id")
+          @JsonPropertyDescription("Stable session identifier filter.")
+          @McpToolProperty(minLength = 1, maxLength = 128, pattern = "^[A-Za-z0-9_-]+$")
+          String sessionId,
+      @JsonProperty("state") @JsonPropertyDescription("Current operation state filter.")
+          State state,
+      @JsonProperty("created_after")
+          @JsonPropertyDescription(
+              "Include operations created at or after this RFC 3339 timestamp.")
+          @McpToolProperty(format = "date-time")
+          String createdAfter,
+      @JsonProperty("created_before")
+          @JsonPropertyDescription("Include operations created before this RFC 3339 timestamp.")
+          @McpToolProperty(format = "date-time")
+          String createdBefore,
+      @JsonProperty("limit")
+          @JsonPropertyDescription(
+              "Maximum operations returned across responded servers, newest first.")
+          @McpToolProperty(minimum = 1, maximum = 200)
+          Integer limit,
+      @JsonProperty("server")
+          @JsonPropertyDescription(
+              "Optional exact diagnostic address returned by list_servers. When set, only that server is queried.")
+          @McpToolProperty(minLength = 3, maxLength = 255)
+          String server) {}
+
+  public record Response(
+      @JsonProperty(required = true)
+          @JsonPropertyDescription(
+              "Visible live operations found on responded servers, ordered newest first.")
+          List<Operation> operations,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription(
+              "Returned operations; not a cluster-wide total when partial is true.")
+          int count,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription("True when the selected request scope was not fully queried.")
+          boolean partial,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription("Failures that made this result incomplete.")
+          List<PeerFailure> failedServers,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription(
+              "Servers selected after HA discovery and optional server filtering.")
+          int discoveredServers,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription("Servers that successfully returned this diagnostic result.")
+          int respondedServers,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription("UTC time when this observation completed.")
+          @McpToolProperty(format = "date-time")
+          String observedAt) {}
+
+  public record Operation(
+      @JsonProperty(required = true) @JsonPropertyDescription("Stable Kyuubi operation identifier.")
+          String operationId,
+      @JsonProperty(required = true) @JsonPropertyDescription("Current Kyuubi operation state.")
+          State state,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription("UTC time when the operation was created.")
+          @McpToolProperty(format = "date-time")
+          String createdAt,
+      @JsonPropertyDescription("UTC time when execution started, when available.")
+          @McpToolProperty(nullable = true, format = "date-time")
+          String startedAt,
+      @JsonPropertyDescription("UTC time when execution completed, when available.")
+          @McpToolProperty(nullable = true, format = "date-time")
+          String completedAt,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription(
+              "Milliseconds since execution started, or since creation while waiting to start; fixed at completion.")
+          long elapsedMs,
+      @JsonProperty(required = true) @JsonPropertyDescription("Identifier of the owning session.")
+          String sessionId,
+      @JsonProperty(required = true) @JsonPropertyDescription("Owner of the operation's session.")
+          String user,
+      @JsonProperty(required = true) @JsonPropertyDescription("Type of the operation's session.")
+          SessionType sessionType,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription(
+              "Diagnostic address of the Kyuubi Server that owns the operation; accepted by the server argument.")
+          String server,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription("Bounded operation metrics exposed by Kyuubi.")
+          Map<String, String> metrics) {}
+
+  public record PeerFailure(
+      @JsonProperty(required = true)
+          @JsonPropertyDescription("Server address or discovery scope associated with the failure.")
+          String server,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription("Bounded transport, deadline, or discovery failure category.")
+          String reason) {}
+
+  public enum State {
+    INITIALIZED,
+    PENDING,
+    RUNNING,
+    COMPILED,
+    FINISHED,
+    TIMEOUT,
+    CANCELED,
+    CLOSED,
+    ERROR,
+    UNKNOWN
+  }
+
+  public enum SessionType {
+    INTERACTIVE,
+    BATCH
+  }
+}

@@ -121,6 +121,18 @@ trait DiscoveryClient extends Logging {
       silent: Boolean = false): Seq[ServiceNodeInfo]
 
   /**
+   * Get service node info and propagate discovery failures to the caller.
+   *
+   * This is intended for diagnostics where an unavailable registry must not be reported as an
+   * empty, healthy cluster. Existing callers retain the best-effort behavior of
+   * [[getServiceNodesInfo]].
+   */
+  private[kyuubi] def getServiceNodesInfoOrThrow(
+      namespace: String,
+      sizeOpt: Option[Int] = None): Seq[ServiceNodeInfo] =
+    getServiceNodesInfo(namespace, sizeOpt)
+
+  /**
    * Register Kyuubi instance on discovery service.
    * @param conf Kyuubi config
    * @param namespace the path to register instance

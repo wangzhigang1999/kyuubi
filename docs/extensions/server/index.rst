@@ -27,3 +27,4 @@ ability of kyuubi servers.
     configuration
     events
     applications
+    mcp_server

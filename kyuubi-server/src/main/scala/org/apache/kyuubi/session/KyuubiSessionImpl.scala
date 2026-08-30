@@ -170,7 +170,7 @@ class KyuubiSessionImpl(
           var engineClient: KyuubiSyncThriftClient = null
           try {
             val passwd =
-              if (sessionManager.getConf.get(ENGINE_SECURITY_ENABLED)) {
+              if (sessionManager.getConf.get(INTERNAL_SECURITY_ENABLED)) {
                 InternalSecurityAccessor.get().issueToken()
               } else {
                 Option(password).filter(_.nonEmpty).getOrElse("anonymous")

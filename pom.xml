@@ -186,6 +186,7 @@
         <kyuubi-relocated-zookeeper.artifacts>kyuubi-relocated-zookeeper-34</kyuubi-relocated-zookeeper.artifacts>
         <ldapsdk.version>6.0.5</ldapsdk.version>
         <log4j.version>2.26.1</log4j.version>
+        <mcp-java-sdk.version>2.0.1</mcp-java-sdk.version>
         <mysql.jdbc.version>8.4.0</mysql.jdbc.version>
         <mockito.version>4.11.0</mockito.version>
         <netty.version>4.2.7.Final</netty.version>
@@ -658,6 +659,18 @@
                 <groupId>io.fabric8</groupId>
                 <artifactId>kubernetes-httpclient-okhttp</artifactId>
                 <version>${kubernetes-client.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp-core</artifactId>
+                <version>${mcp-java-sdk.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp-json-jackson2</artifactId>
+                <version>${mcp-java-sdk.version}</version>
             </dependency>
 
             <dependency>
@@ -1958,6 +1971,16 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>mcp</id>
+            <activation>
+                <jdk>[17,)</jdk>
+            </activation>
+            <modules>
+                <module>extensions/server/kyuubi-mcp-server</module>
+            </modules>
+        </profile>
+
         <profile>
             <id>mirror-cdn</id>
             <properties>

@@ -1,0 +1,398 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.kyuubi.server.diagnostics
+
+import java.lang.management.ManagementFactory
+import java.time.Instant
+import java.time.format.DateTimeParseException
+import java.util.regex.{Pattern, PatternSyntaxException}
+
+import scala.collection.JavaConverters._
+import scala.collection.mutable.ListBuffer
+import scala.util.control.NonFatal
+
+import org.apache.kyuubi.operation.{KyuubiOperation, OperationHandle}
+import org.apache.kyuubi.server.KyuubiRestFrontendService
+import org.apache.kyuubi.session.{KyuubiSession, SessionHandle}
+import org.apache.kyuubi.util.ThriftUtils
+
+private[server] case class DiagnosticPrincipal(
+    realUser: String,
+    clientIp: String,
+    administrator: Boolean)
+
+/**
+ * Node-local diagnostic primitives invoked by the cluster coordinator locally or through the
+ * authenticated internal REST endpoint.
+ */
+private[server] class DiagnosticService(frontendService: KyuubiRestFrontendService) {
+
+  import DiagnosticService._
+
+  private val logSandbox = new ServerLogAccessor(frontendService)
+
+  def execute(
+      action: String,
+      arguments: Map[String, AnyRef],
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = action match {
+    case CLUSTER_OVERVIEW => clusterOverview(arguments, principal)
+    case LIST_SESSIONS => listSessions(arguments, principal)
+    case GET_SESSION => getSession(arguments, principal)
+    case LIST_OPERATIONS => listOperations(arguments, principal)
+    case GET_OPERATION => getOperation(arguments, principal)
+    case READ_OPERATION_LOG => readOperationLog(arguments, principal)
+    case GET_SERVER_RUNTIME => serverRuntime(principal)
+    case LIST_SERVER_LOGS => logSandbox.list(arguments, principal)
+    case READ_SERVER_LOG => logSandbox.read(arguments, principal)
+    case _ => throw new IllegalArgumentException(s"Unsupported diagnostic action: $action")
+  }
+
+  private def clusterOverview(
+      arguments: Map[String, AnyRef],
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
+    val requestedUser = stringArgument(arguments, "user")
+    if (requestedUser.exists(_ != principal.realUser) && !principal.administrator) {
+      throw new IllegalArgumentException("The requested user is not accessible.")
+    }
+    val sessions = frontendService.sessionManager.allSessions()
+      .collect { case session: KyuubiSession => session }
+      .filter(session => canAccess(principal, session.user))
+      .filter(session => requestedUser.forall(_ == session.user))
+      .toSeq
+    val operations = frontendService.sessionManager.operationManager.allOperations()
+      .collect { case operation: KyuubiOperation => operation }
+      .filter(operation => canAccess(principal, operation.getSession.user))
+      .filter(operation => requestedUser.forall(_ == operation.getSession.user))
+      .toSeq
+    val operationStates = operations.groupBy(_.getStatus.state.toString).map {
+      case (state, values) =>
+        state -> Int.box(values.size)
+    }.asJava
+    val sessionTypes = sessions.groupBy(_.sessionType.toString).map { case (sessionType, values) =>
+      sessionType -> Int.box(values.size)
+    }.asJava
+    Map[String, Object](
+      "server" -> frontendService.connectionUrl,
+      "sessionCount" -> Int.box(sessions.size),
+      "sessionTypes" -> sessionTypes,
+      "operationCount" -> Int.box(operations.size),
+      "operationStates" -> operationStates).asJava
+  }
+
+  private def listSessions(
+      arguments: Map[String, AnyRef],
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
+    val requestedUser = stringArgument(arguments, "user")
+    if (requestedUser.exists(_ != principal.realUser) && !principal.administrator) {
+      throw new IllegalArgumentException("The requested user is not accessible.")
+    }
+    val sessionType = stringArgument(arguments, "session_type")
+    val limit = boundedIntArgument(arguments, "limit", 100, 200)
+    val sessions = frontendService.sessionManager.allSessions()
+      .collect { case session: KyuubiSession => session }
+      .filter(session => principal.administrator || session.user == principal.realUser)
+      .filter(session => requestedUser.forall(_ == session.user))
+      .filter(session => sessionType.forall(_.equalsIgnoreCase(session.sessionType.toString)))
+      .toSeq
+      .sortBy(_.createTime)(Ordering.Long.reverse)
+      .take(limit)
+      .map(safeSessionData)
+      .asJava
+    Map[String, Object]("items" -> sessions).asJava
+  }
+
+  private def getSession(
+      arguments: Map[String, AnyRef],
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
+    val session =
+      try {
+        val sessionId = requiredStringArgument(arguments, "session_id")
+        frontendService.sessionManager.getSessionOption(SessionHandle.fromUUID(sessionId)) match {
+          case Some(value: KyuubiSession) if canAccess(principal, value.user) =>
+            Some(safeSessionData(value))
+          case _ => None
+        }
+      } catch {
+        case NonFatal(_) => None
+      }
+    optionalValue(session)
+  }
+
+  private def listOperations(
+      arguments: Map[String, AnyRef],
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
+    val requestedUser = stringArgument(arguments, "user")
+    if (requestedUser.exists(_ != principal.realUser) && !principal.administrator) {
+      throw new IllegalArgumentException("The requested user is not accessible.")
+    }
+    val sessionId = stringArgument(arguments, "session_id")
+    val state = stringArgument(arguments, "state")
+    val (createdAfter, createdBefore) = operationTimeWindow(arguments)
+    val limit = boundedIntArgument(arguments, "limit", 100, 200)
+    val operations = frontendService.sessionManager.operationManager.allOperations()
+      .collect { case operation: KyuubiOperation => operation }
+      .filter(operation => canAccess(principal, operation.getSession.user))
+      .filter(operation => requestedUser.forall(_ == operation.getSession.user))
+      .filter(operation => sessionId.forall(_ == operation.getSession.handle.identifier.toString))
+      .filter(operation => state.forall(_.equalsIgnoreCase(operation.getStatus.state.toString)))
+      .filter(operation =>
+        createdAfter.forall(after =>
+          operation.getOperationEvent.createTime >= after.toEpochMilli))
+      .filter(operation =>
+        createdBefore.forall(before =>
+          operation.getOperationEvent.createTime < before.toEpochMilli))
+      .toSeq
+      .sortBy(_.getOperationEvent.createTime)(Ordering.Long.reverse)
+      .take(limit)
+      .map(safeOperationData)
+      .asJava
+    Map[String, Object]("items" -> operations).asJava
+  }
+
+  private def getOperation(
+      arguments: Map[String, AnyRef],
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
+    val operationId = requiredStringArgument(arguments, "operation_id")
+    optionalValue(accessibleOperation(operationId, principal).map(safeOperationData))
+  }
+
+  private def readOperationLog(
+      arguments: Map[String, AnyRef],
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
+    val operationId = requiredStringArgument(arguments, "operation_id")
+    accessibleOperation(operationId, principal) match {
+      case Some(operation) =>
+        val maxRows = boundedIntArgument(arguments, "max_rows", 100, 1000)
+        val maxBytes = boundedIntArgument(arguments, "max_bytes", 64 * 1024, 256 * 1024)
+        val regex = regexArgument(arguments, "regex")
+        val rowSet = operation.getOperationLog
+          .map(_.readSnapshot(0, maxRows + 1))
+          .getOrElse(ThriftUtils.EMPTY_ROW_SET)
+        val sourceLines = if (rowSet.getColumns == null || rowSet.getColumns.isEmpty) {
+          Seq.empty[String]
+        } else {
+          rowSet.getColumns.get(0).getStringVal.getValues.asScala.toSeq
+        }
+        val content = boundedRedactedLog(sourceLines, maxRows, maxBytes, regex)
+        optionalValue(Some(Map[String, Object](
+          "operationId" -> operationId,
+          "kyuubiInstance" -> frontendService.connectionUrl,
+          "lines" -> content.lines.asJava,
+          "count" -> Int.box(content.lines.size),
+          "maxRows" -> Int.box(maxRows),
+          "maxBytes" -> Int.box(maxBytes),
+          "truncated" -> Boolean.box(content.truncated),
+          "redacted" -> Boolean.box(true)).asJava))
+      case None => optionalValue(None)
+    }
+  }
+
+  private def serverRuntime(
+      principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
+    if (!principal.administrator) {
+      throw new IllegalArgumentException(
+        "Inspecting Kyuubi Server runtime metrics requires administrator permission.")
+    }
+    val runtime = Runtime.getRuntime
+    val runtimeBean = ManagementFactory.getRuntimeMXBean
+    val memory = ManagementFactory.getMemoryMXBean
+    val threads = ManagementFactory.getThreadMXBean
+    val operatingSystem = ManagementFactory.getOperatingSystemMXBean
+    val heap = memory.getHeapMemoryUsage
+    val nonHeap = memory.getNonHeapMemoryUsage
+    val values = scala.collection.mutable.Map[String, Object](
+      "server" -> frontendService.connectionUrl,
+      "kyuubiVersion" -> org.apache.kyuubi.KYUUBI_VERSION,
+      "javaVersion" -> System.getProperty("java.version"),
+      "javaVendor" -> System.getProperty("java.vendor"),
+      "vmName" -> runtimeBean.getVmName,
+      "startTime" -> Long.box(runtimeBean.getStartTime),
+      "uptimeMs" -> Long.box(runtimeBean.getUptime),
+      "availableProcessors" -> Int.box(runtime.availableProcessors()),
+      "heapUsedBytes" -> Long.box(heap.getUsed),
+      "heapCommittedBytes" -> Long.box(heap.getCommitted),
+      "heapMaxBytes" -> Long.box(heap.getMax),
+      "nonHeapUsedBytes" -> Long.box(nonHeap.getUsed),
+      "nonHeapCommittedBytes" -> Long.box(nonHeap.getCommitted),
+      "liveThreads" -> Int.box(threads.getThreadCount),
+      "daemonThreads" -> Int.box(threads.getDaemonThreadCount),
+      "peakThreads" -> Int.box(threads.getPeakThreadCount))
+    val loadAverage = operatingSystem.getSystemLoadAverage
+    if (loadAverage >= 0 && java.lang.Double.isFinite(loadAverage)) {
+      values += "systemLoadAverage" -> Double.box(loadAverage)
+    }
+    values.toMap.asJava
+  }
+
+  private def accessibleOperation(
+      operationId: String,
+      principal: DiagnosticPrincipal): Option[KyuubiOperation] = {
+    try {
+      frontendService.sessionManager.operationManager.getOperation(OperationHandle(
+        operationId)) match {
+        case operation: KyuubiOperation if canAccess(principal, operation.getSession.user) =>
+          Some(operation)
+        case _ => None
+      }
+    } catch {
+      case NonFatal(_) => None
+    }
+  }
+
+  private def optionalValue(
+      value: Option[java.util.Map[String, Object]]): java.util.Map[String, Object] =
+    Map[String, Object](
+      "found" -> Boolean.box(value.nonEmpty),
+      "value" -> value.orNull).asJava
+
+  private def canAccess(principal: DiagnosticPrincipal, owner: String): Boolean =
+    principal.administrator || owner == principal.realUser
+
+  private def safeSessionData(session: KyuubiSession): java.util.Map[String, Object] = {
+    val now = System.currentTimeMillis()
+    Map[String, Object](
+      "sessionId" -> session.handle.identifier.toString,
+      "user" -> session.user,
+      "clientIp" -> session.ipAddress,
+      "sessionType" -> session.sessionType.toString,
+      "server" -> session.connectionUrl,
+      "createdAt" -> Instant.ofEpochMilli(session.createTime).toString,
+      "ageMs" -> Long.box(math.max(0L, now - session.createTime)),
+      "idleMs" -> Long.box(session.getNoOperationTime),
+      "operationCount" -> Int.box(
+        session.getSessionEvent.map(_.totalOperations).getOrElse(0))).asJava
+  }
+
+  private def safeOperationData(operation: KyuubiOperation): java.util.Map[String, Object] = {
+    val event = operation.getOperationEvent
+    val now = System.currentTimeMillis()
+    val startedAt = Option(event.startTime).filter(_ > 0).map(time =>
+      Instant.ofEpochMilli(time).toString).orNull
+    val completedAt = Option(event.completeTime).filter(_ > 0).map(time =>
+      Instant.ofEpochMilli(time).toString).orNull
+    val elapsedFrom = if (event.startTime > 0) event.startTime else event.createTime
+    val elapsedUntil = if (event.completeTime > 0) event.completeTime else now
+    Map[String, Object](
+      "operationId" -> event.statementId,
+      "state" -> operation.getStatus.state.toString,
+      "createdAt" -> Instant.ofEpochMilli(event.createTime).toString,
+      "startedAt" -> startedAt,
+      "completedAt" -> completedAt,
+      "elapsedMs" -> Long.box(math.max(0L, elapsedUntil - elapsedFrom)),
+      "sessionId" -> event.sessionId,
+      "user" -> event.sessionUser,
+      "sessionType" -> event.sessionType,
+      "server" -> operation.getSession.asInstanceOf[KyuubiSession].connectionUrl,
+      "metrics" -> event.metrics.asJava).asJava
+  }
+}
+
+private[server] object DiagnosticService {
+  val CLUSTER_OVERVIEW = "get_cluster_overview"
+  val LIST_SESSIONS = "list_sessions"
+  val GET_SESSION = "get_session"
+  val LIST_OPERATIONS = "list_operations"
+  val GET_OPERATION = "get_operation"
+  val READ_OPERATION_LOG = "read_operation_log"
+  val GET_SERVER_RUNTIME = "get_server_runtime"
+  val LIST_SERVER_LOGS = "list_server_logs"
+  val READ_SERVER_LOG = "read_server_log"
+
+  private[server] case class BoundedLog(lines: Seq[String], truncated: Boolean)
+
+  private[server] def boundedRedactedLog(
+      source: Seq[String],
+      maxRows: Int,
+      maxBytes: Int,
+      regex: Option[Pattern]): BoundedLog = {
+    val lines = ListBuffer[String]()
+    var size = 0
+    var truncated = false
+    source.foreach { rawLine =>
+      if (regex.forall(_.matcher(rawLine).find())) {
+        val line = ServerLogAccessor.redact(rawLine)
+        val lineSize = line.getBytes(java.nio.charset.StandardCharsets.UTF_8).length + 1
+        if (lines.size >= maxRows || size + lineSize > maxBytes) {
+          truncated = true
+        } else {
+          lines += line
+          size += lineSize
+        }
+      }
+    }
+    BoundedLog(lines.toSeq, truncated)
+  }
+
+  def stringArgument(arguments: Map[String, AnyRef], name: String): Option[String] =
+    arguments.get(name).map(_.toString.trim).filter(_.nonEmpty)
+
+  def requiredStringArgument(arguments: Map[String, AnyRef], name: String): String =
+    stringArgument(arguments, name)
+      .getOrElse(throw new IllegalArgumentException(s"$name is required"))
+
+  def instantArgument(arguments: Map[String, AnyRef], name: String): Option[Instant] =
+    stringArgument(arguments, name).map { value =>
+      try {
+        Instant.parse(value)
+      } catch {
+        case _: DateTimeParseException =>
+          throw new IllegalArgumentException(s"$name must be an RFC 3339 timestamp")
+      }
+    }
+
+  def operationTimeWindow(
+      arguments: Map[String, AnyRef]): (Option[Instant], Option[Instant]) = {
+    val createdAfter = instantArgument(arguments, "created_after")
+    val createdBefore = instantArgument(arguments, "created_before")
+    if (createdAfter.exists(after => createdBefore.exists(before => !after.isBefore(before)))) {
+      throw new IllegalArgumentException("created_after must be earlier than created_before")
+    }
+    createdAfter -> createdBefore
+  }
+
+  def regexArgument(
+      arguments: Map[String, AnyRef],
+      name: String,
+      maximumLength: Int = 256): Option[Pattern] =
+    stringArgument(arguments, name).map { value =>
+      if (value.length > maximumLength) {
+        throw new IllegalArgumentException(s"$name must not exceed $maximumLength characters")
+      }
+      try {
+        Pattern.compile(value)
+      } catch {
+        case error: PatternSyntaxException =>
+          throw new IllegalArgumentException(s"$name is invalid: ${error.getDescription}")
+      }
+    }
+
+  def boundedIntArgument(
+      arguments: Map[String, AnyRef],
+      name: String,
+      defaultValue: Int,
+      maximum: Int): Int = {
+    val value = arguments.get(name).map {
+      case number: Number => number.intValue()
+      case other => other.toString.toInt
+    }.getOrElse(defaultValue)
+    if (value < 1 || value > maximum) {
+      throw new IllegalArgumentException(s"$name must be between 1 and $maximum")
+    }
+    value
+  }
+}

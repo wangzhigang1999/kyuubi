@@ -183,6 +183,12 @@ class KyuubiRestAuthenticationSuite extends RestClientTestHelper {
     val openedSessionCount = response.readEntity(classOf[SessionOpenCount])
     assert(openedSessionCount.getOpenSessionCount == 0)
 
+    response = webTarget.path("api/v1/internal/diagnostics")
+      .request()
+      .header(AUTHORIZATION_HEADER, s"${AuthSchemes.KYUUBI_INTERNAL} $encodeAuthorization")
+      .post(Entity.json("""{"action":"list_sessions","arguments":{}}"""))
+    assert(HttpServletResponse.SC_NOT_FOUND == response.getStatus)
+
     val badAuthorization = new String(
       Base64.getEncoder.encode(
         s"$ldapUser:".getBytes()),

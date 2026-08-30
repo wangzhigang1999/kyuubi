@@ -808,6 +808,28 @@ object KyuubiConf {
       .booleanConf
       .createWithDefault(true)
 
+  val FRONTEND_MCP_ENABLED: ConfigEntry[Boolean] =
+    buildConf("kyuubi.frontend.mcp.enabled")
+      .audience(SERVER)
+      .immutable
+      .doc("Whether to enable the optional MCP server extension on the REST frontend. " +
+        "The extension requires Java 17 or later and the kyuubi-mcp-server module on the " +
+        "server classpath.")
+      .version("1.13.0")
+      .booleanConf
+      .createWithDefault(false)
+
+  val FRONTEND_MCP_ALLOW_INSECURE_AUTHENTICATION: ConfigEntry[Boolean] =
+    buildConf("kyuubi.frontend.mcp.allowInsecureAuthentication")
+      .audience(SERVER)
+      .immutable
+      .doc("Whether to allow MCP when the REST frontend uses NONE authentication. This unsafe " +
+        "option is intended only for isolated development and testing because unauthenticated " +
+        "callers are treated as Kyuubi administrators.")
+      .version("1.13.0")
+      .booleanConf
+      .createWithDefault(false)
+
   val FRONTEND_WORKER_KEEPALIVE_TIME: ConfigEntry[Long] =
     buildConf("kyuubi.frontend.worker.keepalive.time")
       .doc("(deprecated) Keep-alive time (in milliseconds) for an idle worker thread")

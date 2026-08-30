@@ -21,6 +21,7 @@ import java.util.Base64
 
 import scala.collection.JavaConverters._
 import scala.util.{Failure, Success, Try}
+import scala.util.control.NonFatal
 
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.client.{BaseRestApi, BatchRestApi, KyuubiRestClient}
@@ -47,15 +48,18 @@ class InternalRestClient(
     connectTimeout: Int,
     securityEnabled: Boolean,
     requestMaxAttempts: Int,
-    requestAttemptWait: Int) extends Logging {
+    requestAttemptWait: Int) extends Logging with AutoCloseable {
   if (securityEnabled) {
     require(
       InternalSecurityAccessor.get() != null,
       "Internal secure access across Kyuubi instances is not enabled")
   }
 
-  private val internalBatchRestApi = new BatchRestApi(initKyuubiRestClient())
-  private val internalBaseRestApi = new BaseRestApi(initKyuubiRestClient())
+  @volatile private var restClient: KyuubiRestClient = _
+  @volatile private var closed = false
+
+  private lazy val internalBatchRestApi = new BatchRestApi(getOrCreateRestClient())
+  private lazy val internalBaseRestApi = new BaseRestApi(getOrCreateRestClient())
 
   def pingAble(user: String, clientIp: String): Boolean = withAuthUser(user) {
     Try {
@@ -93,6 +97,47 @@ class InternalRestClient(
     withAuthUser(user) {
       internalBatchRestApi.deleteBatch(batchId, Map(proxyClientIpHeader -> clientIp).asJava)
     }
+  }
+
+  def executeDiagnostic(user: String, clientIp: String, body: String): String = {
+    withAuthUser(user) {
+      val client = getOrCreateRestClient()
+      client.getHttpClient.post(
+        "internal/diagnostics",
+        body,
+        client.getAuthHeader,
+        Map(proxyClientIpHeader -> clientIp).asJava)
+    }
+  }
+
+  override def close(): Unit = {
+    val client = synchronized {
+      closed = true
+      val initializedClient = restClient
+      restClient = null
+      initializedClient
+    }
+    if (client != null) {
+      try {
+        client.close()
+      } catch {
+        case NonFatal(e) => warn(s"Failed to close REST client for $kyuubiInstance", e)
+      }
+    }
+  }
+
+  private def getOrCreateRestClient(): KyuubiRestClient = {
+    var client = restClient
+    if (client == null) {
+      synchronized {
+        require(!closed, s"Internal REST client for $kyuubiInstance is closed")
+        if (restClient == null) {
+          restClient = initKyuubiRestClient()
+        }
+        client = restClient
+      }
+    }
+    client
   }
 
   private def initKyuubiRestClient(): KyuubiRestClient = {

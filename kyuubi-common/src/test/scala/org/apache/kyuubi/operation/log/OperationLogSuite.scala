@@ -265,6 +265,7 @@ class OperationLogSuite extends KyuubiFunSuite {
       compareResult(
         log.read(FetchOrientation.FETCH_NEXT, 10),
         Seq("0", "1", "2", "3", "4", "5", "6", "7", "8", "9"))
+      compareResult(log.readSnapshot(0, 5), Seq("0", "1", "2", "3", "4"))
       compareResult(log.read(FetchOrientation.FETCH_NEXT, 5), Seq("10", "11", "12", "13", "14"))
       compareResult(log.read(FetchOrientation.FETCH_FIRST, 5), Seq("0", "1", "2", "3", "4"))
       compareResult(

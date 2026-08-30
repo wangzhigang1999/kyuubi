@@ -17,11 +17,34 @@
 
 package org.apache.kyuubi.server
 
+import javax.ws.rs.client.Entity
+
 import org.apache.kyuubi.{KYUUBI_VERSION, RestFrontendTestHelper}
 import org.apache.kyuubi.client.api.v1.dto.VersionInfo
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
 import org.apache.kyuubi.service.authentication.AnonymousAuthenticationProviderImpl
+
+class KyuubiMcpAuthenticationConfigurationSuite extends org.apache.kyuubi.KyuubiFunSuite {
+
+  test("MCP fails closed without authenticated REST access") {
+    val conf = KyuubiConf().set(FRONTEND_MCP_ENABLED, true)
+
+    val error = intercept[IllegalArgumentException] {
+      KyuubiRestFrontendService.validateMcpAuthentication(conf, securityEnabled = false)
+    }
+    assert(error.getMessage.contains(FRONTEND_MCP_ALLOW_INSECURE_AUTHENTICATION.key))
+  }
+
+  test("MCP permits authenticated REST or explicit insecure development mode") {
+    KyuubiRestFrontendService.validateMcpAuthentication(KyuubiConf(), securityEnabled = true)
+    val developmentConf = KyuubiConf()
+      .set(FRONTEND_MCP_ALLOW_INSECURE_AUTHENTICATION, true)
+    KyuubiRestFrontendService.validateMcpAuthentication(
+      developmentConf,
+      securityEnabled = false)
+  }
+}
 
 class KyuubiRestFrontendServiceSuite extends RestFrontendTestHelper {
 
@@ -36,6 +59,12 @@ class KyuubiRestFrontendServiceSuite extends RestFrontendTestHelper {
   test("kyuubi REST frontend service http basic") {
     val resp = webTarget.path("/api/v1/ping").request().get()
     assert(resp.readEntity(classOf[String]) === "pong")
+  }
+
+  test("reject external access to the internal diagnostic endpoint") {
+    val internalEndpointResponse = webTarget.path("/api/v1/internal/diagnostics").request()
+      .post(Entity.json("""{"action":"list_sessions","arguments":{}}"""))
+    assert(internalEndpointResponse.getStatus === 403)
   }
 
   test("error and exception response") {
