@@ -42,6 +42,7 @@ final class KyuubiMcpSchemaGenerator {
         new SchemaGeneratorConfigBuilder(
                 objectMapper, SchemaVersion.DRAFT_7, OptionPreset.PLAIN_JSON)
             .with(jacksonModule)
+            .with(Option.MAP_VALUES_AS_ADDITIONAL_PROPERTIES)
             .with(Option.FORBIDDEN_ADDITIONAL_PROPERTIES_BY_DEFAULT)
             .without(Option.SCHEMA_VERSION_INDICATOR);
     builder

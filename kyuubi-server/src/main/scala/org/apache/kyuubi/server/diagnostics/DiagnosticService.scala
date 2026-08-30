@@ -82,8 +82,9 @@ private[server] class DiagnosticService(
       .filter(operation => canAccess(principal, operation.getSession.user))
       .filter(operation => requestedUser.forall(_ == operation.getSession.user))
       .toSeq
-    val operationStates = operations.groupBy(_.getStatus.toString).map { case (state, values) =>
-      state -> Int.box(values.size)
+    val operationStates = operations.groupBy(_.getStatus.state.toString).map {
+      case (state, values) =>
+        state -> Int.box(values.size)
     }.asJava
     val sessionTypes = sessions.groupBy(_.sessionType.toString).map { case (sessionType, values) =>
       sessionType -> Int.box(values.size)
