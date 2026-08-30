@@ -250,6 +250,7 @@ private[server] class ClusterDiagnosticService(
     requiredStringArgument(arguments, "operation_id")
     boundedIntArgument(arguments, "max_rows", 100, 1000)
     boundedIntArgument(arguments, "max_bytes", 64 * 1024, 256 * 1024)
+    regexArgument(arguments, "regex")
     aggregateLookup(READ_OPERATION_LOG, arguments, principal, "operationLog")
   }
 
@@ -278,6 +279,7 @@ private[server] class ClusterDiagnosticService(
     requiredStringArgument(arguments, "log_id")
     boundedIntArgument(arguments, "max_lines", 200, 1000)
     boundedIntArgument(arguments, "max_bytes", 64 * 1024, 256 * 1024)
+    regexArgument(arguments, "regex")
     aggregateLookup(READ_SERVER_LOG, arguments, principal, "serverLog")
   }
 

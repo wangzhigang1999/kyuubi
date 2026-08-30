@@ -210,6 +210,10 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
       maxBytes = 100,
       regex = Some(java.util.regex.Pattern.compile("ERROR|FATAL")))
     assert(regexFiltered.lines === Seq("ERROR failed", "FATAL stopped"))
+    val invalidRegex = intercept[IllegalArgumentException] {
+      DiagnosticService.regexArgument(Map("regex" -> "["), "regex")
+    }
+    assert(invalidRegex.getMessage.startsWith("regex is invalid:"))
   }
 
   private def call(body: String) = webTarget.path("/mcp").request()
