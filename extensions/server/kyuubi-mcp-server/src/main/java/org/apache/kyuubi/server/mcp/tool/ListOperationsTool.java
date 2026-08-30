@@ -44,8 +44,9 @@ public final class ListOperationsTool
   @Override
   public String description() {
     return "List live operations visible to the authenticated user. Prefer one relevant state "
-        + "filter instead of exhaustive parallel calls. When partial is true, an empty list means "
-        + "no matches on responded servers only.";
+        + "filter instead of exhaustive parallel calls. Results are ordered by creation time, "
+        + "newest first. When partial is true, an empty list means no matches on responded "
+        + "servers only.";
   }
 
   @Override
@@ -69,6 +70,8 @@ public final class ListOperationsTool
     put(values, "user", arguments.user());
     put(values, "session_id", arguments.sessionId());
     put(values, "state", arguments.state());
+    put(values, "created_after", arguments.createdAfter());
+    put(values, "created_before", arguments.createdBefore());
     put(values, "limit", arguments.limit());
     return KyuubiMcpTool.Result.success(
         diagnostics.response(diagnostics.listOperations(values, caller), Response.class));
@@ -92,14 +95,25 @@ public final class ListOperationsTool
           String sessionId,
       @JsonProperty("state") @JsonPropertyDescription("Current operation state filter.")
           State state,
+      @JsonProperty("created_after")
+          @JsonPropertyDescription(
+              "Include operations created at or after this RFC 3339 timestamp.")
+          @McpToolProperty(format = "date-time")
+          String createdAfter,
+      @JsonProperty("created_before")
+          @JsonPropertyDescription("Include operations created before this RFC 3339 timestamp.")
+          @McpToolProperty(format = "date-time")
+          String createdBefore,
       @JsonProperty("limit")
-          @JsonPropertyDescription("Maximum operations returned across responded servers.")
+          @JsonPropertyDescription(
+              "Maximum operations returned across responded servers, newest first.")
           @McpToolProperty(minimum = 1, maximum = 200)
           Integer limit) {}
 
   public record Response(
       @JsonProperty(required = true)
-          @JsonPropertyDescription("Visible live operations found on responded servers.")
+          @JsonPropertyDescription(
+              "Visible live operations found on responded servers, ordered newest first.")
           List<Operation> operations,
       @JsonProperty(required = true)
           @JsonPropertyDescription(

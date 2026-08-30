@@ -54,6 +54,8 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(!tools.contains("execute_sql"))
     assert(!tools.contains("submit_batch"))
     assert(tools.contains("\"maximum\":200"))
+    assert(tools.contains("\"created_after\""))
+    assert(tools.contains("\"regex\""))
     assert(tools.contains("\"pattern\":\"^[A-Za-z0-9_-]+$\""))
     assert(tools.contains("\"outputSchema\""))
     assert(tools.contains("\"additionalProperties\":{\"type\":\"integer\"}"), tools)
@@ -191,7 +193,7 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
       Seq("password=first", "safe line", "another line"),
       maxRows = 2,
       maxBytes = 100,
-      contains = None)
+      regex = None)
     assert(bounded.lines.size === 2)
     assert(!bounded.lines.mkString.contains("first"))
     assert(bounded.truncated)
@@ -199,9 +201,15 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
       Seq("a line larger than the budget"),
       maxRows = 10,
       maxBytes = 4,
-      contains = None)
+      regex = None)
     assert(oversizedLine.lines.isEmpty)
     assert(oversizedLine.truncated)
+    val regexFiltered = DiagnosticService.boundedRedactedLog(
+      Seq("INFO healthy", "ERROR failed", "FATAL stopped"),
+      maxRows = 10,
+      maxBytes = 100,
+      regex = Some(java.util.regex.Pattern.compile("ERROR|FATAL")))
+    assert(regexFiltered.lines === Seq("ERROR failed", "FATAL stopped"))
   }
 
   private def call(body: String) = webTarget.path("/mcp").request()

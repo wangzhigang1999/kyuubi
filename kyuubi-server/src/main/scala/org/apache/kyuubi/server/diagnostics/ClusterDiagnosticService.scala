@@ -225,6 +225,7 @@ private[server] class ClusterDiagnosticService(
   def listOperations(
       arguments: Map[String, AnyRef],
       principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
+    operationTimeWindow(arguments)
     val limit = boundedIntArgument(arguments, "limit", 100, 200)
     aggregateList(
       LIST_OPERATIONS,

@@ -73,10 +73,10 @@ private[server] class ServerLogAccessor(frontendService: KyuubiRestFrontendServi
     }
     val maxLines = boundedIntArgument(arguments, "max_lines", 200, MAX_READ_LINES)
     val maxBytes = boundedIntArgument(arguments, "max_bytes", DEFAULT_READ_BYTES, MAX_READ_BYTES)
-    val contains = boundedLiteralArgument(arguments, "contains")
+    val regex = regexArgument(arguments, "regex")
     discoverFiles(configuredRoots()).find(_.id == logId) match {
       case Some(file) =>
-        val content = readTail(file.path, maxLines, maxBytes, contains)
+        val content = readTail(file.path, maxLines, maxBytes, regex)
         info(s"Server log read allowed for user ${auditValue(principal.realUser)}")
         Map[String, Object](
           "found" -> Boolean.box(true),
@@ -140,7 +140,7 @@ private[server] class ServerLogAccessor(frontendService: KyuubiRestFrontendServi
       path: Path,
       maxLines: Int,
       maxBytes: Int,
-      contains: Option[String]): TailContent = {
+      regex: Option[java.util.regex.Pattern]): TailContent = {
     val file = FileChannel.open(path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)
     try {
       val length = file.size()
@@ -159,7 +159,7 @@ private[server] class ServerLogAccessor(frontendService: KyuubiRestFrontendServi
       val allLines = new String(completeBytes, StandardCharsets.UTF_8)
         .split("\\r?\\n", -1)
         .toSeq
-        .filter(line => contains.forall(value => line.toLowerCase(Locale.ROOT).contains(value)))
+        .filter(line => regex.forall(_.matcher(line).find()))
       val lines = allLines.takeRight(maxLines).map(redact)
       TailContent(lines, start > 0 || allLines.size > maxLines)
     } finally {

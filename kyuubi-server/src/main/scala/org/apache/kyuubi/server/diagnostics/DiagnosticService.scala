@@ -19,6 +19,8 @@ package org.apache.kyuubi.server.diagnostics
 
 import java.lang.management.ManagementFactory
 import java.time.Instant
+import java.time.format.DateTimeParseException
+import java.util.regex.{Pattern, PatternSyntaxException}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
@@ -140,6 +142,7 @@ private[server] class DiagnosticService(frontendService: KyuubiRestFrontendServi
     }
     val sessionId = stringArgument(arguments, "session_id")
     val state = stringArgument(arguments, "state")
+    val (createdAfter, createdBefore) = operationTimeWindow(arguments)
     val limit = boundedIntArgument(arguments, "limit", 100, 200)
     val operations = frontendService.sessionManager.operationManager.allOperations()
       .collect { case operation: KyuubiOperation => operation }
@@ -147,6 +150,12 @@ private[server] class DiagnosticService(frontendService: KyuubiRestFrontendServi
       .filter(operation => requestedUser.forall(_ == operation.getSession.user))
       .filter(operation => sessionId.forall(_ == operation.getSession.handle.identifier.toString))
       .filter(operation => state.forall(_.equalsIgnoreCase(operation.getStatus.state.toString)))
+      .filter(operation =>
+        createdAfter.forall(after =>
+          operation.getOperationEvent.createTime >= after.toEpochMilli))
+      .filter(operation =>
+        createdBefore.forall(before =>
+          operation.getOperationEvent.createTime < before.toEpochMilli))
       .toSeq
       .sortBy(_.getOperationEvent.createTime)(Ordering.Long.reverse)
       .take(limit)
@@ -170,10 +179,7 @@ private[server] class DiagnosticService(frontendService: KyuubiRestFrontendServi
       case Some(operation) =>
         val maxRows = boundedIntArgument(arguments, "max_rows", 100, 1000)
         val maxBytes = boundedIntArgument(arguments, "max_bytes", 64 * 1024, 256 * 1024)
-        val contains = stringArgument(arguments, "contains")
-        if (contains.exists(_.length > 128)) {
-          throw new IllegalArgumentException("contains must not exceed 128 characters")
-        }
+        val regex = regexArgument(arguments, "regex")
         val rowSet = operation.getOperationLog
           .map(_.readSnapshot(0, maxRows + 1))
           .getOrElse(ThriftUtils.EMPTY_ROW_SET)
@@ -182,7 +188,7 @@ private[server] class DiagnosticService(frontendService: KyuubiRestFrontendServi
         } else {
           rowSet.getColumns.get(0).getStringVal.getValues.asScala.toSeq
         }
-        val content = boundedRedactedLog(sourceLines, maxRows, maxBytes, contains)
+        val content = boundedRedactedLog(sourceLines, maxRows, maxBytes, regex)
         optionalValue(Some(Map[String, Object](
           "operationId" -> operationId,
           "kyuubiInstance" -> frontendService.connectionUrl,
@@ -313,13 +319,12 @@ private[server] object DiagnosticService {
       source: Seq[String],
       maxRows: Int,
       maxBytes: Int,
-      contains: Option[String]): BoundedLog = {
-    val filter = contains.map(_.toLowerCase(java.util.Locale.ROOT))
+      regex: Option[Pattern]): BoundedLog = {
     val lines = ListBuffer[String]()
     var size = 0
     var truncated = false
     source.foreach { rawLine =>
-      if (filter.forall(value => rawLine.toLowerCase(java.util.Locale.ROOT).contains(value))) {
+      if (regex.forall(_.matcher(rawLine).find())) {
         val line = ServerLogAccessor.redact(rawLine)
         val lineSize = line.getBytes(java.nio.charset.StandardCharsets.UTF_8).length + 1
         if (lines.size >= maxRows || size + lineSize > maxBytes) {
@@ -339,6 +344,42 @@ private[server] object DiagnosticService {
   def requiredStringArgument(arguments: Map[String, AnyRef], name: String): String =
     stringArgument(arguments, name)
       .getOrElse(throw new IllegalArgumentException(s"$name is required"))
+
+  def instantArgument(arguments: Map[String, AnyRef], name: String): Option[Instant] =
+    stringArgument(arguments, name).map { value =>
+      try {
+        Instant.parse(value)
+      } catch {
+        case _: DateTimeParseException =>
+          throw new IllegalArgumentException(s"$name must be an RFC 3339 timestamp")
+      }
+    }
+
+  def operationTimeWindow(
+      arguments: Map[String, AnyRef]): (Option[Instant], Option[Instant]) = {
+    val createdAfter = instantArgument(arguments, "created_after")
+    val createdBefore = instantArgument(arguments, "created_before")
+    if (createdAfter.exists(after => createdBefore.exists(before => !after.isBefore(before)))) {
+      throw new IllegalArgumentException("created_after must be earlier than created_before")
+    }
+    createdAfter -> createdBefore
+  }
+
+  def regexArgument(
+      arguments: Map[String, AnyRef],
+      name: String,
+      maximumLength: Int = 256): Option[Pattern] =
+    stringArgument(arguments, name).map { value =>
+      if (value.length > maximumLength) {
+        throw new IllegalArgumentException(s"$name must not exceed $maximumLength characters")
+      }
+      try {
+        Pattern.compile(value)
+      } catch {
+        case error: PatternSyntaxException =>
+          throw new IllegalArgumentException(s"$name is invalid: ${error.getDescription}")
+      }
+    }
 
   def boundedIntArgument(
       arguments: Map[String, AnyRef],

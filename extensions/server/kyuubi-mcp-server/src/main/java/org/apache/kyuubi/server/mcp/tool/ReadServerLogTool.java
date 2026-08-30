@@ -69,7 +69,7 @@ public final class ReadServerLogTool
     values.put("log_id", arguments.logId());
     if (arguments.maxLines() != null) values.put("max_lines", arguments.maxLines());
     if (arguments.maxBytes() != null) values.put("max_bytes", arguments.maxBytes());
-    if (arguments.contains() != null) values.put("contains", arguments.contains());
+    if (arguments.regex() != null) values.put("regex", arguments.regex());
     Response response =
         diagnostics.response(diagnostics.readServerLog(values, caller), Response.class);
     if (response.found()) {
@@ -94,11 +94,12 @@ public final class ReadServerLogTool
           @JsonPropertyDescription("Maximum bytes scanned from the file tail; defaults to 65536.")
           @McpToolProperty(minimum = 1, maximum = 262144)
           Integer maxBytes,
-      @JsonProperty("contains")
+      @JsonProperty("regex")
           @JsonPropertyDescription(
-              "Optional literal, case-insensitive line filter; this is not a regular expression.")
-          @McpToolProperty(minLength = 1, maxLength = 128)
-          String contains) {}
+              "Optional Java regular expression matched against each line. Matching is "
+                  + "case-sensitive unless the expression uses an inline flag such as (?i).")
+          @McpToolProperty(minLength = 1, maxLength = 256)
+          String regex) {}
 
   public record Response(
       @JsonProperty(required = true)

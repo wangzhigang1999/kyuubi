@@ -65,7 +65,7 @@ public final class ReadOperationLogTool
     values.put("operation_id", arguments.operationId());
     put(values, "max_rows", arguments.maxRows());
     put(values, "max_bytes", arguments.maxBytes());
-    put(values, "contains", arguments.contains());
+    put(values, "regex", arguments.regex());
     Response response =
         diagnostics.response(diagnostics.readOperationLog(values, caller), Response.class);
     if (response.found()) {
@@ -95,11 +95,12 @@ public final class ReadOperationLogTool
           @JsonPropertyDescription("Maximum returned UTF-8 log bytes; defaults to 65536.")
           @McpToolProperty(minimum = 1, maximum = 262144)
           Integer maxBytes,
-      @JsonProperty("contains")
+      @JsonProperty("regex")
           @JsonPropertyDescription(
-              "Optional literal, case-insensitive line filter; this is not a regular expression.")
-          @McpToolProperty(minLength = 1, maxLength = 128)
-          String contains) {}
+              "Optional Java regular expression matched against each line. Matching is "
+                  + "case-sensitive unless the expression uses an inline flag such as (?i).")
+          @McpToolProperty(minLength = 1, maxLength = 256)
+          String regex) {}
 
   public record Response(
       @JsonProperty(required = true)
