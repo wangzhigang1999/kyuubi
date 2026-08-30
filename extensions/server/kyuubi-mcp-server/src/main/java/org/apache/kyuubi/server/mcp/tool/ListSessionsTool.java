@@ -23,12 +23,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.kyuubi.server.mcp.KyuubiMcpDiagnostics;
-import org.apache.kyuubi.server.mcp.KyuubiMcpToolProvider;
 import org.apache.kyuubi.server.mcp.McpToolProperty;
 
 /** Cluster-wide live session listing. */
 public final class ListSessionsTool
-    implements KyuubiMcpToolProvider.Tool<ListSessionsTool.Args, ListSessionsTool.Response> {
+    implements KyuubiMcpTool<ListSessionsTool.Args, ListSessionsTool.Response> {
 
   public static final String NAME = "list_sessions";
   private final KyuubiMcpDiagnostics diagnostics;
@@ -59,18 +58,17 @@ public final class ListSessionsTool
   }
 
   @Override
-  public KyuubiMcpToolProvider.Result<Response> call(
-      KyuubiMcpToolProvider.Caller caller, Args arguments) {
+  public KyuubiMcpTool.Result<Response> call(KyuubiMcpTool.Caller caller, Args arguments) {
     if (arguments.user() != null
         && !arguments.user().equals(caller.realUser())
         && !caller.administrator()) {
-      return KyuubiMcpToolProvider.Result.denied("The requested user is not accessible.");
+      return KyuubiMcpTool.Result.denied("The requested user is not accessible.");
     }
     Map<String, Object> values = new HashMap<>();
     put(values, "user", arguments.user());
     put(values, "session_type", arguments.sessionType());
     put(values, "limit", arguments.limit());
-    return KyuubiMcpToolProvider.Result.success(
+    return KyuubiMcpTool.Result.success(
         diagnostics.response(diagnostics.listSessions(values, caller), Response.class));
   }
 

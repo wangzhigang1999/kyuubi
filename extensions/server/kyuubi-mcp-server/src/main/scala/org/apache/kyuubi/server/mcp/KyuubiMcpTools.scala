@@ -36,8 +36,9 @@ import org.apache.kyuubi.Logging
 import org.apache.kyuubi.metrics.MetricsConstants.{MCP_TOOL_CALL_TIME, MCP_TOOL_CALL_TOTAL}
 import org.apache.kyuubi.metrics.MetricsSystem
 import org.apache.kyuubi.server.KyuubiRestFrontendService
-import org.apache.kyuubi.server.mcp.KyuubiMcpToolProvider.{Caller, Result, Tool}
 import org.apache.kyuubi.server.mcp.tool._
+import org.apache.kyuubi.server.mcp.tool.KyuubiMcpTool
+import org.apache.kyuubi.server.mcp.tool.KyuubiMcpTool.{Caller, Result}
 
 private[mcp] class KyuubiMcpTools(
     frontendService: KyuubiRestFrontendService,
@@ -50,7 +51,7 @@ private[mcp] class KyuubiMcpTools(
   private val diagnostics = new KyuubiMcpDiagnostics(frontendService, objectMapper)
   private val schemaGenerator = new KyuubiMcpSchemaGenerator(objectMapper)
 
-  val builtIns: Seq[Tool[_, _]] = Seq(
+  val builtIns: Seq[KyuubiMcpTool[_, _]] = Seq(
     new GetClusterOverviewTool(diagnostics),
     new ListServersTool(diagnostics),
     new GetServerRuntimeTool(diagnostics),
@@ -63,7 +64,8 @@ private[mcp] class KyuubiMcpTools(
     new ListServerLogsTool(diagnostics),
     new ReadServerLogTool(diagnostics))
 
-  def specification(tool: Tool[_, _]): McpStatelessServerFeatures.SyncToolSpecification = {
+  def specification(tool: KyuubiMcpTool[_, _])
+      : McpStatelessServerFeatures.SyncToolSpecification = {
     validate(tool)
     val definition = McpSchema.Tool.builder(tool.name())
       .description(tool.description())
@@ -102,15 +104,14 @@ private[mcp] class KyuubiMcpTools(
   def close(): Unit = diagnostics.close()
 
   private def invoke(
-      tool: Tool[_, _],
+      tool: KyuubiMcpTool[_, _],
       context: McpTransportContext,
       request: McpSchema.CallToolRequest): McpSchema.CallToolResult = {
-    val typed = tool.asInstanceOf[Tool[Object, Object]]
+    val typed = tool.asInstanceOf[KyuubiMcpTool[Object, Object]]
     val rawArguments = Option(request.arguments())
       .getOrElse(Collections.emptyMap[String, Object]())
     val arguments = objectMapper.convertValue(rawArguments, typed.argumentsType())
     val caller = new Caller(
-      contextValue(context, REQUEST_ID),
       contextValue(context, REAL_USER),
       contextValue(context, CLIENT_IP),
       java.lang.Boolean.TRUE == context.get(ADMINISTRATOR))
@@ -124,7 +125,7 @@ private[mcp] class KyuubiMcpTools(
     }
   }
 
-  private def validate(tool: Tool[_, _]): Unit = {
+  private def validate(tool: KyuubiMcpTool[_, _]): Unit = {
     require(tool != null, "MCP tool must not be null")
     require(tool.name() != null && tool.name().nonEmpty, "MCP tool requires a name")
     require(

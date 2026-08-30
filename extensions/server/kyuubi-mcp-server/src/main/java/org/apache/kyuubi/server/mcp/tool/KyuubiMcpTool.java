@@ -15,63 +15,37 @@
  * limitations under the License.
  */
 
-package org.apache.kyuubi.server.mcp;
+package org.apache.kyuubi.server.mcp.tool;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.Collection;
 import java.util.Objects;
-import org.apache.kyuubi.server.KyuubiRestFrontendService;
 
 /**
- * Discovers trusted, deployment-specific MCP tools through {@link java.util.ServiceLoader}.
+ * Internal typed definition shared by built-in MCP diagnostic tools.
  *
- * <p>Provider jars run inside the Kyuubi Server process and are therefore part of the trusted
- * server installation. Kyuubi generates JSON schemas from their argument and response classes and
- * wraps their calls with the same input validation, audit logging, and metrics used by built-in
- * tools. It cannot sandbox arbitrary provider code.
+ * <p>This is not an extension point and may change without compatibility guarantees.
  */
-public interface KyuubiMcpToolProvider extends AutoCloseable {
+public interface KyuubiMcpTool<A, R> {
 
-  Collection<? extends Tool<?, ?>> tools(Context context);
+  String name();
 
-  @Override
-  default void close() {}
+  String description();
 
-  /** Initialization context shared by all tools from one provider. */
-  final class Context {
-    private final KyuubiRestFrontendService frontendService;
-    private final ObjectMapper objectMapper;
+  Class<A> argumentsType();
 
-    public Context(KyuubiRestFrontendService frontendService, ObjectMapper objectMapper) {
-      this.frontendService = Objects.requireNonNull(frontendService, "frontendService");
-      this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
-    }
+  Class<R> responseType();
 
-    public KyuubiRestFrontendService frontendService() {
-      return frontendService;
-    }
-
-    public ObjectMapper objectMapper() {
-      return objectMapper;
-    }
-  }
+  Result<R> call(Caller caller, A arguments) throws Exception;
 
   /** Authenticated request identity supplied by Kyuubi, never by tool arguments. */
   final class Caller {
-    private final String requestId;
     private final String realUser;
     private final String clientIp;
     private final boolean administrator;
 
-    public Caller(String requestId, String realUser, String clientIp, boolean administrator) {
-      this.requestId = Objects.requireNonNull(requestId, "requestId");
+    public Caller(String realUser, String clientIp, boolean administrator) {
       this.realUser = Objects.requireNonNull(realUser, "realUser");
       this.clientIp = Objects.requireNonNull(clientIp, "clientIp");
       this.administrator = administrator;
-    }
-
-    public String requestId() {
-      return requestId;
     }
 
     public String realUser() {
@@ -87,21 +61,7 @@ public interface KyuubiMcpToolProvider extends AutoCloseable {
     }
   }
 
-  /** A typed, synchronous, read-only diagnostic tool. */
-  interface Tool<A, R> {
-
-    String name();
-
-    String description();
-
-    Class<A> argumentsType();
-
-    Class<R> responseType();
-
-    Result<R> call(Caller caller, A arguments) throws Exception;
-  }
-
-  /** The protocol-neutral outcome of a tool call. */
+  /** The protocol-neutral outcome of a built-in tool call. */
   final class Result<R> {
     public enum Status {
       SUCCESS,

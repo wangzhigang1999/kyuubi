@@ -23,13 +23,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.kyuubi.server.mcp.KyuubiMcpDiagnostics;
-import org.apache.kyuubi.server.mcp.KyuubiMcpToolProvider;
 import org.apache.kyuubi.server.mcp.McpToolProperty;
 
 /** Bounded and redacted operation-log reader. */
 public final class ReadOperationLogTool
-    implements KyuubiMcpToolProvider.Tool<
-        ReadOperationLogTool.Args, ReadOperationLogTool.Response> {
+    implements KyuubiMcpTool<ReadOperationLogTool.Args, ReadOperationLogTool.Response> {
 
   public static final String NAME = "read_operation_log";
   private static final String INCOMPLETE =
@@ -62,8 +60,7 @@ public final class ReadOperationLogTool
   }
 
   @Override
-  public KyuubiMcpToolProvider.Result<Response> call(
-      KyuubiMcpToolProvider.Caller caller, Args arguments) {
+  public KyuubiMcpTool.Result<Response> call(KyuubiMcpTool.Caller caller, Args arguments) {
     Map<String, Object> values = new HashMap<>();
     values.put("operation_id", arguments.operationId());
     put(values, "max_rows", arguments.maxRows());
@@ -72,11 +69,11 @@ public final class ReadOperationLogTool
     Response response =
         diagnostics.response(diagnostics.readOperationLog(values, caller), Response.class);
     if (response.found()) {
-      return KyuubiMcpToolProvider.Result.success(response);
+      return KyuubiMcpTool.Result.success(response);
     }
     return response.partial()
-        ? KyuubiMcpToolProvider.Result.error(INCOMPLETE, response)
-        : KyuubiMcpToolProvider.Result.error(INACCESSIBLE);
+        ? KyuubiMcpTool.Result.error(INCOMPLETE, response)
+        : KyuubiMcpTool.Result.error(INACCESSIBLE);
   }
 
   private static void put(Map<String, Object> values, String name, Object value) {

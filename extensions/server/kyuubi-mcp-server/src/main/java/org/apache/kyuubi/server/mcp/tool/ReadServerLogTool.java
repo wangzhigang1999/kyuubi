@@ -23,12 +23,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.kyuubi.server.mcp.KyuubiMcpDiagnostics;
-import org.apache.kyuubi.server.mcp.KyuubiMcpToolProvider;
 import org.apache.kyuubi.server.mcp.McpToolProperty;
 
 /** Bounded, redacted reader for one protected Kyuubi Server log. */
 public final class ReadServerLogTool
-    implements KyuubiMcpToolProvider.Tool<ReadServerLogTool.Args, ReadServerLogTool.Response> {
+    implements KyuubiMcpTool<ReadServerLogTool.Args, ReadServerLogTool.Response> {
 
   public static final String NAME = "read_server_log";
   private static final String INCOMPLETE =
@@ -61,10 +60,9 @@ public final class ReadServerLogTool
   }
 
   @Override
-  public KyuubiMcpToolProvider.Result<Response> call(
-      KyuubiMcpToolProvider.Caller caller, Args arguments) {
+  public KyuubiMcpTool.Result<Response> call(KyuubiMcpTool.Caller caller, Args arguments) {
     if (!caller.administrator()) {
-      return KyuubiMcpToolProvider.Result.denied(
+      return KyuubiMcpTool.Result.denied(
           "Reading Kyuubi Server logs requires administrator permission.");
     }
     Map<String, Object> values = new HashMap<>();
@@ -75,11 +73,11 @@ public final class ReadServerLogTool
     Response response =
         diagnostics.response(diagnostics.readServerLog(values, caller), Response.class);
     if (response.found()) {
-      return KyuubiMcpToolProvider.Result.success(response);
+      return KyuubiMcpTool.Result.success(response);
     }
     return response.partial()
-        ? KyuubiMcpToolProvider.Result.error(INCOMPLETE, response)
-        : KyuubiMcpToolProvider.Result.error(INACCESSIBLE);
+        ? KyuubiMcpTool.Result.error(INCOMPLETE, response)
+        : KyuubiMcpTool.Result.error(INACCESSIBLE);
   }
 
   public record Args(

@@ -17,10 +17,7 @@
 
 package org.apache.kyuubi.server.mcp
 
-import java.util.ServiceLoader
-
 import scala.collection.JavaConverters._
-import scala.util.control.NonFatal
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import io.modelcontextprotocol.common.McpTransportContext
@@ -40,11 +37,7 @@ private[server] class KyuubiMcpService(frontendService: KyuubiRestFrontendServic
   private val jsonMapper = new JacksonMcpJsonMapper(objectMapper)
   val transport = new KyuubiMcpHttpTransport(jsonMapper, requestId => requestContext(requestId))
   private val tools = new KyuubiMcpTools(frontendService, objectMapper, jsonMapper)
-  private val pluginContext = new KyuubiMcpToolProvider.Context(frontendService, objectMapper)
-  private val pluginProviders = loadPluginProviders()
-  private val allTools = validateUniqueNames(
-    tools.builtIns ++ pluginProviders.flatMap(loadPluginTools))
-  private val specifications = allTools.map(tools.specification)
+  private val specifications = tools.builtIns.map(tools.specification)
   private val server: McpStatelessSyncServer = McpServer.sync(transport)
     .serverInfo("Apache Kyuubi", KYUUBI_VERSION)
     .instructions(SERVER_INSTRUCTIONS)
@@ -55,50 +48,7 @@ private[server] class KyuubiMcpService(frontendService: KyuubiRestFrontendServic
 
   def close(): Unit = {
     server.closeGracefully()
-    pluginProviders.foreach { provider =>
-      try {
-        provider.close()
-      } catch {
-        case NonFatal(e) =>
-          warn(s"Failed to close MCP tool provider ${provider.getClass.getName}", e)
-      }
-    }
     tools.close()
-  }
-
-  private def loadPluginProviders(): Seq[KyuubiMcpToolProvider] = {
-    val contextClassLoader = Option(Thread.currentThread().getContextClassLoader)
-      .getOrElse(getClass.getClassLoader)
-    val providers = ServiceLoader.load(classOf[KyuubiMcpToolProvider], contextClassLoader)
-      .iterator().asScala.toSeq.sortBy(_.getClass.getName)
-    providers.foreach(provider => info(s"Loaded MCP tool provider ${provider.getClass.getName}"))
-    providers
-  }
-
-  private def loadPluginTools(
-      provider: KyuubiMcpToolProvider)
-      : Seq[KyuubiMcpToolProvider.Tool[_, _]] = {
-    val providedTools = Option(provider.tools(pluginContext)).getOrElse {
-      throw new IllegalArgumentException(
-        s"MCP tool provider ${provider.getClass.getName} returned null")
-    }
-    providedTools.asScala.toSeq.map { providedTool =>
-      if (providedTool == null) {
-        throw new IllegalArgumentException(
-          s"MCP tool provider ${provider.getClass.getName} returned a null tool")
-      }
-      providedTool
-    }
-  }
-
-  private def validateUniqueNames(
-      values: Seq[KyuubiMcpToolProvider.Tool[_, _]])
-      : Seq[KyuubiMcpToolProvider.Tool[_, _]] = {
-    val duplicateNames = values.groupBy(_.name()).collect {
-      case (name, matches) if matches.size > 1 => name
-    }.toSeq.sorted
-    require(duplicateNames.isEmpty, s"Duplicate MCP tool names: ${duplicateNames.mkString(", ")}")
-    values
   }
 
   private def requestContext(requestId: Object): McpTransportContext = {

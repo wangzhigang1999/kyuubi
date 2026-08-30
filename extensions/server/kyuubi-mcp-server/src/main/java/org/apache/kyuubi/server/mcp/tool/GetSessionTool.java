@@ -22,12 +22,11 @@ import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import java.util.List;
 import java.util.Map;
 import org.apache.kyuubi.server.mcp.KyuubiMcpDiagnostics;
-import org.apache.kyuubi.server.mcp.KyuubiMcpToolProvider;
 import org.apache.kyuubi.server.mcp.McpToolProperty;
 
 /** Cluster-wide lookup of one live session. */
 public final class GetSessionTool
-    implements KyuubiMcpToolProvider.Tool<GetSessionTool.Args, GetSessionTool.Response> {
+    implements KyuubiMcpTool<GetSessionTool.Args, GetSessionTool.Response> {
 
   public static final String NAME = "get_session";
   private static final String INCOMPLETE =
@@ -60,18 +59,17 @@ public final class GetSessionTool
   }
 
   @Override
-  public KyuubiMcpToolProvider.Result<Response> call(
-      KyuubiMcpToolProvider.Caller caller, Args arguments) {
+  public KyuubiMcpTool.Result<Response> call(KyuubiMcpTool.Caller caller, Args arguments) {
     Response response =
         diagnostics.response(
             diagnostics.getSession(Map.of("session_id", arguments.sessionId()), caller),
             Response.class);
     if (response.found()) {
-      return KyuubiMcpToolProvider.Result.success(response);
+      return KyuubiMcpTool.Result.success(response);
     }
     return response.partial()
-        ? KyuubiMcpToolProvider.Result.error(INCOMPLETE, response)
-        : KyuubiMcpToolProvider.Result.error(INACCESSIBLE);
+        ? KyuubiMcpTool.Result.error(INCOMPLETE, response)
+        : KyuubiMcpTool.Result.error(INACCESSIBLE);
   }
 
   public record Args(

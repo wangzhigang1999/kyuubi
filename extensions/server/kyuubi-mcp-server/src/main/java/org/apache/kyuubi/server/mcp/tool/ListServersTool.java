@@ -21,12 +21,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import java.util.List;
 import org.apache.kyuubi.server.mcp.KyuubiMcpDiagnostics;
-import org.apache.kyuubi.server.mcp.KyuubiMcpToolProvider;
 import org.apache.kyuubi.server.mcp.McpToolProperty;
 
 /** Cluster-wide Kyuubi Server discovery and reachability probe. */
 public final class ListServersTool
-    implements KyuubiMcpToolProvider.Tool<ListServersTool.Args, ListServersTool.Response> {
+    implements KyuubiMcpTool<ListServersTool.Args, ListServersTool.Response> {
 
   public static final String NAME = "list_servers";
   private final KyuubiMcpDiagnostics diagnostics;
@@ -57,13 +56,12 @@ public final class ListServersTool
   }
 
   @Override
-  public KyuubiMcpToolProvider.Result<Response> call(
-      KyuubiMcpToolProvider.Caller caller, Args arguments) {
+  public KyuubiMcpTool.Result<Response> call(KyuubiMcpTool.Caller caller, Args arguments) {
     if (!caller.administrator()) {
-      return KyuubiMcpToolProvider.Result.denied(
+      return KyuubiMcpTool.Result.denied(
           "Listing Kyuubi servers requires administrator permission.");
     }
-    return KyuubiMcpToolProvider.Result.success(
+    return KyuubiMcpTool.Result.success(
         diagnostics.response(diagnostics.listServers(caller), Response.class));
   }
 

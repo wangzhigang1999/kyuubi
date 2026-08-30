@@ -23,12 +23,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.kyuubi.server.mcp.KyuubiMcpDiagnostics;
-import org.apache.kyuubi.server.mcp.KyuubiMcpToolProvider;
 import org.apache.kyuubi.server.mcp.McpToolProperty;
 
 /** Cluster-wide listing of protected Kyuubi Server log files. */
 public final class ListServerLogsTool
-    implements KyuubiMcpToolProvider.Tool<ListServerLogsTool.Args, ListServerLogsTool.Response> {
+    implements KyuubiMcpTool<ListServerLogsTool.Args, ListServerLogsTool.Response> {
 
   public static final String NAME = "list_server_logs";
   private final KyuubiMcpDiagnostics diagnostics;
@@ -59,16 +58,15 @@ public final class ListServerLogsTool
   }
 
   @Override
-  public KyuubiMcpToolProvider.Result<Response> call(
-      KyuubiMcpToolProvider.Caller caller, Args arguments) {
+  public KyuubiMcpTool.Result<Response> call(KyuubiMcpTool.Caller caller, Args arguments) {
     if (!caller.administrator()) {
-      return KyuubiMcpToolProvider.Result.denied(
+      return KyuubiMcpTool.Result.denied(
           "Listing Kyuubi Server logs requires administrator permission.");
     }
     Map<String, Object> values = new HashMap<>();
     if (arguments.contains() != null) values.put("contains", arguments.contains());
     if (arguments.limit() != null) values.put("limit", arguments.limit());
-    return KyuubiMcpToolProvider.Result.success(
+    return KyuubiMcpTool.Result.success(
         diagnostics.response(diagnostics.listServerLogs(values, caller), Response.class));
   }
 

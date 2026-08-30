@@ -60,15 +60,6 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(tools.contains("\"outputSchema\""))
     assert(tools.contains("Servers that successfully returned this diagnostic result."))
     assert(tools.contains("\"type\":[\"object\",\"null\"]"))
-    assert(tools.contains("\"name\":\"test_extension_status\""))
-
-    val extensionResponse = call(
-      """{"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":""" +
-        """"test_extension_status","arguments":{}}}""")
-    assert(extensionResponse.getStatus === 200)
-    val extensionResult = extensionResponse.readEntity(classOf[String])
-    assert(extensionResult.contains("\"provider\":\"service_loader\""))
-    assert(extensionResult.contains("\"administrator\":true"))
 
     val overviewResponse = call(
       """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":""" +

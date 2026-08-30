@@ -22,6 +22,7 @@ import java.util.Map;
 import org.apache.kyuubi.server.KyuubiRestFrontendService;
 import org.apache.kyuubi.server.diagnostics.ClusterDiagnosticService;
 import org.apache.kyuubi.server.diagnostics.DiagnosticPrincipal;
+import org.apache.kyuubi.server.mcp.tool.KyuubiMcpTool;
 import scala.Tuple2;
 
 /** Java-facing adapter for the protocol-neutral cluster diagnostic service. */
@@ -37,55 +38,55 @@ public final class KyuubiMcpDiagnostics implements AutoCloseable {
   }
 
   public Map<String, Object> clusterOverview(
-      Map<String, Object> arguments, KyuubiMcpToolProvider.Caller caller) {
+      Map<String, Object> arguments, KyuubiMcpTool.Caller caller) {
     return delegate.clusterOverview(toScala(arguments), principal(caller));
   }
 
-  public Map<String, Object> listServers(KyuubiMcpToolProvider.Caller caller) {
+  public Map<String, Object> listServers(KyuubiMcpTool.Caller caller) {
     return delegate.listServers(principal(caller));
   }
 
-  public Map<String, Object> serverRuntime(KyuubiMcpToolProvider.Caller caller) {
+  public Map<String, Object> serverRuntime(KyuubiMcpTool.Caller caller) {
     return delegate.serverRuntime(principal(caller));
   }
 
   public Map<String, Object> listEngines(
-      Map<String, Object> arguments, KyuubiMcpToolProvider.Caller caller) {
+      Map<String, Object> arguments, KyuubiMcpTool.Caller caller) {
     return delegate.listEngines(toScala(arguments), principal(caller));
   }
 
   public Map<String, Object> listSessions(
-      Map<String, Object> arguments, KyuubiMcpToolProvider.Caller caller) {
+      Map<String, Object> arguments, KyuubiMcpTool.Caller caller) {
     return delegate.listSessions(toScala(arguments), principal(caller));
   }
 
   public Map<String, Object> getSession(
-      Map<String, Object> arguments, KyuubiMcpToolProvider.Caller caller) {
+      Map<String, Object> arguments, KyuubiMcpTool.Caller caller) {
     return delegate.getSession(toScala(arguments), principal(caller));
   }
 
   public Map<String, Object> listOperations(
-      Map<String, Object> arguments, KyuubiMcpToolProvider.Caller caller) {
+      Map<String, Object> arguments, KyuubiMcpTool.Caller caller) {
     return delegate.listOperations(toScala(arguments), principal(caller));
   }
 
   public Map<String, Object> getOperation(
-      Map<String, Object> arguments, KyuubiMcpToolProvider.Caller caller) {
+      Map<String, Object> arguments, KyuubiMcpTool.Caller caller) {
     return delegate.getOperation(toScala(arguments), principal(caller));
   }
 
   public Map<String, Object> readOperationLog(
-      Map<String, Object> arguments, KyuubiMcpToolProvider.Caller caller) {
+      Map<String, Object> arguments, KyuubiMcpTool.Caller caller) {
     return delegate.readOperationLog(toScala(arguments), principal(caller));
   }
 
   public Map<String, Object> listServerLogs(
-      Map<String, Object> arguments, KyuubiMcpToolProvider.Caller caller) {
+      Map<String, Object> arguments, KyuubiMcpTool.Caller caller) {
     return delegate.listServerLogs(toScala(arguments), principal(caller));
   }
 
   public Map<String, Object> readServerLog(
-      Map<String, Object> arguments, KyuubiMcpToolProvider.Caller caller) {
+      Map<String, Object> arguments, KyuubiMcpTool.Caller caller) {
     return delegate.readServerLog(toScala(arguments), principal(caller));
   }
 
@@ -98,7 +99,7 @@ public final class KyuubiMcpDiagnostics implements AutoCloseable {
     delegate.close();
   }
 
-  private static DiagnosticPrincipal principal(KyuubiMcpToolProvider.Caller caller) {
+  private static DiagnosticPrincipal principal(KyuubiMcpTool.Caller caller) {
     return new DiagnosticPrincipal(caller.realUser(), caller.clientIp(), caller.administrator());
   }
 

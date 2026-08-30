@@ -23,12 +23,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.kyuubi.server.mcp.KyuubiMcpDiagnostics;
-import org.apache.kyuubi.server.mcp.KyuubiMcpToolProvider;
 import org.apache.kyuubi.server.mcp.McpToolProperty;
 
 /** HA service-discovery view of registered Kyuubi engines. */
 public final class ListEnginesTool
-    implements KyuubiMcpToolProvider.Tool<ListEnginesTool.Args, ListEnginesTool.Response> {
+    implements KyuubiMcpTool<ListEnginesTool.Args, ListEnginesTool.Response> {
 
   public static final String NAME = "list_engines";
   private final KyuubiMcpDiagnostics diagnostics;
@@ -59,12 +58,11 @@ public final class ListEnginesTool
   }
 
   @Override
-  public KyuubiMcpToolProvider.Result<Response> call(
-      KyuubiMcpToolProvider.Caller caller, Args arguments) {
+  public KyuubiMcpTool.Result<Response> call(KyuubiMcpTool.Caller caller, Args arguments) {
     if (arguments.user() != null
         && !arguments.user().equals(caller.realUser())
         && !caller.administrator()) {
-      return KyuubiMcpToolProvider.Result.denied("The requested user is not accessible.");
+      return KyuubiMcpTool.Result.denied("The requested user is not accessible.");
     }
     Map<String, Object> values = new HashMap<>();
     put(values, "user", arguments.user());
@@ -72,7 +70,7 @@ public final class ListEnginesTool
     put(values, "share_level", arguments.shareLevel());
     put(values, "subdomain", arguments.subdomain());
     put(values, "limit", arguments.limit());
-    return KyuubiMcpToolProvider.Result.success(
+    return KyuubiMcpTool.Result.success(
         diagnostics.response(diagnostics.listEngines(values, caller), Response.class));
   }
 

@@ -21,13 +21,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import java.util.List;
 import org.apache.kyuubi.server.mcp.KyuubiMcpDiagnostics;
-import org.apache.kyuubi.server.mcp.KyuubiMcpToolProvider;
 import org.apache.kyuubi.server.mcp.McpToolProperty;
 
 /** Bounded JVM and host runtime observations from every responding server. */
 public final class GetServerRuntimeTool
-    implements KyuubiMcpToolProvider.Tool<
-        GetServerRuntimeTool.Args, GetServerRuntimeTool.Response> {
+    implements KyuubiMcpTool<GetServerRuntimeTool.Args, GetServerRuntimeTool.Response> {
 
   public static final String NAME = "get_server_runtime";
   private final KyuubiMcpDiagnostics diagnostics;
@@ -58,13 +56,12 @@ public final class GetServerRuntimeTool
   }
 
   @Override
-  public KyuubiMcpToolProvider.Result<Response> call(
-      KyuubiMcpToolProvider.Caller caller, Args arguments) {
+  public KyuubiMcpTool.Result<Response> call(KyuubiMcpTool.Caller caller, Args arguments) {
     if (!caller.administrator()) {
-      return KyuubiMcpToolProvider.Result.denied(
+      return KyuubiMcpTool.Result.denied(
           "Inspecting Kyuubi Server runtime metrics requires administrator permission.");
     }
-    return KyuubiMcpToolProvider.Result.success(
+    return KyuubiMcpTool.Result.success(
         diagnostics.response(diagnostics.serverRuntime(caller), Response.class));
   }
 

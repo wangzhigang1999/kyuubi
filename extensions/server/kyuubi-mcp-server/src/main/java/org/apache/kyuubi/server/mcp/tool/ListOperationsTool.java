@@ -23,12 +23,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.kyuubi.server.mcp.KyuubiMcpDiagnostics;
-import org.apache.kyuubi.server.mcp.KyuubiMcpToolProvider;
 import org.apache.kyuubi.server.mcp.McpToolProperty;
 
 /** Cluster-wide live operation listing. */
 public final class ListOperationsTool
-    implements KyuubiMcpToolProvider.Tool<ListOperationsTool.Args, ListOperationsTool.Response> {
+    implements KyuubiMcpTool<ListOperationsTool.Args, ListOperationsTool.Response> {
 
   public static final String NAME = "list_operations";
   private final KyuubiMcpDiagnostics diagnostics;
@@ -60,19 +59,18 @@ public final class ListOperationsTool
   }
 
   @Override
-  public KyuubiMcpToolProvider.Result<Response> call(
-      KyuubiMcpToolProvider.Caller caller, Args arguments) {
+  public KyuubiMcpTool.Result<Response> call(KyuubiMcpTool.Caller caller, Args arguments) {
     if (arguments.user() != null
         && !arguments.user().equals(caller.realUser())
         && !caller.administrator()) {
-      return KyuubiMcpToolProvider.Result.denied("The requested user is not accessible.");
+      return KyuubiMcpTool.Result.denied("The requested user is not accessible.");
     }
     Map<String, Object> values = new HashMap<>();
     put(values, "user", arguments.user());
     put(values, "session_id", arguments.sessionId());
     put(values, "state", arguments.state());
     put(values, "limit", arguments.limit());
-    return KyuubiMcpToolProvider.Result.success(
+    return KyuubiMcpTool.Result.success(
         diagnostics.response(diagnostics.listOperations(values, caller), Response.class));
   }
 

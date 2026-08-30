@@ -23,13 +23,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.kyuubi.server.mcp.KyuubiMcpDiagnostics;
-import org.apache.kyuubi.server.mcp.KyuubiMcpToolProvider;
 import org.apache.kyuubi.server.mcp.McpToolProperty;
 
 /** Cluster-wide session and operation health summary. */
 public final class GetClusterOverviewTool
-    implements KyuubiMcpToolProvider.Tool<
-        GetClusterOverviewTool.Args, GetClusterOverviewTool.Response> {
+    implements KyuubiMcpTool<GetClusterOverviewTool.Args, GetClusterOverviewTool.Response> {
 
   public static final String NAME = "get_cluster_overview";
   private final KyuubiMcpDiagnostics diagnostics;
@@ -61,18 +59,17 @@ public final class GetClusterOverviewTool
   }
 
   @Override
-  public KyuubiMcpToolProvider.Result<Response> call(
-      KyuubiMcpToolProvider.Caller caller, Args arguments) {
+  public KyuubiMcpTool.Result<Response> call(KyuubiMcpTool.Caller caller, Args arguments) {
     if (arguments.user() != null
         && !arguments.user().equals(caller.realUser())
         && !caller.administrator()) {
-      return KyuubiMcpToolProvider.Result.denied("The requested user is not accessible.");
+      return KyuubiMcpTool.Result.denied("The requested user is not accessible.");
     }
     Map<String, Object> values = new HashMap<>();
     if (arguments.user() != null) {
       values.put("user", arguments.user());
     }
-    return KyuubiMcpToolProvider.Result.success(
+    return KyuubiMcpTool.Result.success(
         diagnostics.response(diagnostics.clusterOverview(values, caller), Response.class));
   }
 
