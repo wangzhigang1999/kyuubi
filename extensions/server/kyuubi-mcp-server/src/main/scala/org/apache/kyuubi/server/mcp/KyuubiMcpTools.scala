@@ -65,7 +65,7 @@ private[mcp] class KyuubiMcpTools(
         }
     },
     tool(
-      "list_servers",
+      LIST_SERVERS,
       "List reachable Kyuubi Server instances across the cluster. A failed response does not " +
         "prove that the process stopped. Administrators only.") {
       (context, _) =>
@@ -88,7 +88,7 @@ private[mcp] class KyuubiMcpTools(
         }
     },
     tool(
-      "list_engines",
+      LIST_ENGINES,
       "List engine registrations visible to the authenticated user directly from HA service " +
         "discovery. This does not test Kyuubi Server or engine process reachability.",
       properties = Map(
@@ -390,6 +390,8 @@ private[mcp] class KyuubiMcpTools(
 private[mcp] object KyuubiMcpTools {
   import DiagnosticService._
 
+  private val LIST_SERVERS = "list_servers"
+  private val LIST_ENGINES = "list_engines"
   private val AUDIT_STATUS = "kyuubi.audit.status"
   private val MAX_AUDIT_VALUE_LENGTH = 128
   private val READ_ONLY_ANNOTATIONS = McpSchema.ToolAnnotations.builder()
@@ -549,7 +551,7 @@ private[mcp] object KyuubiMcpTools {
             "Per-server summaries returned by responded servers.",
             OVERVIEW_SERVER_SCHEMA)),
         Seq("sessionCount", "sessionTypes", "operationCount", "operationStates", "servers"))
-    case "list_servers" => clusterSchema(
+    case LIST_SERVERS => clusterSchema(
         Map(
           "servers" -> outputArray(
             "Servers that responded to a runtime probe during this call.",
@@ -567,7 +569,7 @@ private[mcp] object KyuubiMcpTools {
             RUNTIME_SCHEMA),
           "count" -> outputInteger("Number of returned runtime snapshots.")),
         Seq("serverRuntimes", "count"))
-    case "list_engines" => objectSchema(
+    case LIST_ENGINES => objectSchema(
         Map(
           "discoveryEnabled" -> outputBoolean(
             "Whether HA service discovery is configured for this engine lookup."),
