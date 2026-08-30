@@ -106,29 +106,17 @@ public final class ListOperationsTool
               "Returned operations; not a cluster-wide total when partial is true.")
           int count,
       @JsonProperty(required = true)
-          @JsonPropertyDescription(
-              "True when discovery failed or a discovered server failed or was omitted.")
+          @JsonPropertyDescription("True when the result does not cover every discovered server.")
           boolean partial,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Failures that made this result incomplete.")
           List<PeerFailure> failedServers,
       @JsonProperty(required = true)
-          @JsonPropertyDescription(
-              "Distinct server registrations discovered before the fanout limit.")
+          @JsonPropertyDescription("Distinct Kyuubi Server registrations found by HA discovery.")
           int discoveredServers,
-      @JsonProperty(required = true)
-          @JsonPropertyDescription(
-              "Discovered registrations not queried because fanoutLimit was reached.")
-          int omittedServers,
-      @JsonProperty(required = true)
-          @JsonPropertyDescription("Maximum discovered servers queried by one call.")
-          int fanoutLimit,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Servers that successfully returned this diagnostic result.")
           int respondedServers,
-      @JsonProperty(required = true)
-          @JsonPropertyDescription("Scope covered by operations and count.")
-          CountScope countScope,
       @JsonProperty(required = true)
           @JsonPropertyDescription("UTC time when this observation completed.")
           @McpToolProperty(format = "date-time")
@@ -136,31 +124,35 @@ public final class ListOperationsTool
 
   public record Operation(
       @JsonProperty(required = true) @JsonPropertyDescription("Stable Kyuubi operation identifier.")
-          String identifier,
+          String operationId,
       @JsonProperty(required = true) @JsonPropertyDescription("Current Kyuubi operation state.")
-          String state,
+          State state,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("Operation creation time as Unix epoch milliseconds.")
-          long createTime,
-      @JsonPropertyDescription("Operation start time as Unix epoch milliseconds when available.")
-          @McpToolProperty(nullable = true)
-          Long startTime,
-      @JsonPropertyDescription(
-              "Operation completion time as Unix epoch milliseconds when available.")
-          @McpToolProperty(nullable = true)
-          Long completeTime,
+          @JsonPropertyDescription("UTC time when the operation was created.")
+          @McpToolProperty(format = "date-time")
+          String createdAt,
+      @JsonPropertyDescription("UTC time when execution started, when available.")
+          @McpToolProperty(nullable = true, format = "date-time")
+          String startedAt,
+      @JsonPropertyDescription("UTC time when execution completed, when available.")
+          @McpToolProperty(nullable = true, format = "date-time")
+          String completedAt,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription(
+              "Milliseconds since execution started, or since creation while waiting to start; fixed at completion.")
+          long elapsedMs,
       @JsonProperty(required = true) @JsonPropertyDescription("Identifier of the owning session.")
           String sessionId,
       @JsonProperty(required = true) @JsonPropertyDescription("Owner of the operation's session.")
-          String sessionUser,
+          String user,
       @JsonProperty(required = true) @JsonPropertyDescription("Type of the operation's session.")
-          String sessionType,
+          SessionType sessionType,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Kyuubi Server instance that owns the operation.")
-          String kyuubiInstance,
+          String server,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Bounded operation metrics exposed by Kyuubi.")
-          Map<String, Object> metrics) {}
+          Map<String, String> metrics) {}
 
   public record PeerFailure(
       @JsonProperty(required = true)
@@ -183,8 +175,8 @@ public final class ListOperationsTool
     UNKNOWN
   }
 
-  public enum CountScope {
-    all_discovered_servers,
-    responded_servers_only
+  public enum SessionType {
+    INTERACTIVE,
+    BATCH
   }
 }

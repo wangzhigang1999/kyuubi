@@ -75,30 +75,18 @@ public final class GetServerRuntimeTool
           @JsonPropertyDescription("Number of returned runtime snapshots.")
           int count,
       @JsonProperty(required = true)
-          @JsonPropertyDescription(
-              "True when discovery failed or a discovered server failed or was omitted.")
+          @JsonPropertyDescription("True when the result does not cover every discovered server.")
           boolean partial,
       @JsonProperty(required = true)
           @JsonPropertyDescription(
               "Failures that made this result incomplete; a failure does not prove a process stopped.")
           List<PeerFailure> failedServers,
       @JsonProperty(required = true)
-          @JsonPropertyDescription(
-              "Distinct server registrations discovered before the fanout limit.")
+          @JsonPropertyDescription("Distinct Kyuubi Server registrations found by HA discovery.")
           int discoveredServers,
-      @JsonProperty(required = true)
-          @JsonPropertyDescription(
-              "Discovered registrations not queried because fanoutLimit was reached.")
-          int omittedServers,
-      @JsonProperty(required = true)
-          @JsonPropertyDescription("Maximum discovered servers queried by one call.")
-          int fanoutLimit,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Servers that successfully returned this diagnostic result.")
           int respondedServers,
-      @JsonProperty(required = true)
-          @JsonPropertyDescription("Scope covered by the returned snapshots and counts.")
-          CountScope countScope,
       @JsonProperty(required = true)
           @JsonPropertyDescription("UTC time when this observation completed.")
           @McpToolProperty(format = "date-time")
@@ -159,9 +147,4 @@ public final class GetServerRuntimeTool
       @JsonProperty(required = true)
           @JsonPropertyDescription("Bounded transport, deadline, or discovery failure category.")
           String reason) {}
-
-  public enum CountScope {
-    all_discovered_servers,
-    responded_servers_only
-  }
 }

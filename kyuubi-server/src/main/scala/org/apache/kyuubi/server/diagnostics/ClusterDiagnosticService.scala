@@ -18,7 +18,6 @@
 package org.apache.kyuubi.server.diagnostics
 
 import java.time.Instant
-import java.util.Collections
 import java.util.concurrent.{Callable, ConcurrentHashMap, ExecutorCompletionService, ExecutorService, Future, TimeUnit}
 
 import scala.collection.JavaConverters._
@@ -29,8 +28,8 @@ import com.fasterxml.jackson.core.`type`.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 
 import org.apache.kyuubi.{KYUUBI_VERSION, Logging}
-import org.apache.kyuubi.client.api.v1.dto.Engine
 import org.apache.kyuubi.config.KyuubiConf._
+import org.apache.kyuubi.engine.{EngineType, ShareLevel}
 import org.apache.kyuubi.ha.HighAvailabilityConf.HA_NAMESPACE
 import org.apache.kyuubi.ha.client.{DiscoveryPaths, ServiceDiscovery, ServiceNodeInfo}
 import org.apache.kyuubi.ha.client.DiscoveryClientProvider.withDiscoveryClient
@@ -52,7 +51,7 @@ private[server] class ClusterDiagnosticService(
   import ClusterDiagnosticService._
   import DiagnosticService._
 
-  private val localDiagnostics = new DiagnosticService(frontendService, objectMapper)
+  private val localDiagnostics = new DiagnosticService(frontendService)
   private val executor = newFanoutExecutor()
   private val clients = new ConcurrentHashMap[String, InternalRestClient]()
 
@@ -79,7 +78,14 @@ private[server] class ClusterDiagnosticService(
       arguments: Map[String, AnyRef],
       principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val limit = boundedIntArgument(arguments, "limit", 100, 200)
-    aggregateList(LIST_SESSIONS, arguments, principal, "sessions", "identifier", limit)
+    aggregateList(
+      LIST_SESSIONS,
+      arguments,
+      principal,
+      "sessions",
+      "sessionId",
+      "createdAt",
+      limit)
   }
 
   def listEngines(
@@ -87,81 +93,100 @@ private[server] class ClusterDiagnosticService(
       principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val limit = boundedIntArgument(arguments, "limit", 100, MAX_ENGINE_RESULTS)
     val requestedUser = stringArgument(arguments, "user")
-    val effectiveUser = requestedUser match {
-      case Some(user) if principal.administrator => user
-      case Some(user) if user != principal.realUser =>
-        throw new IllegalArgumentException("The requested user is not accessible.")
-      case _ => principal.realUser
+    if (requestedUser.exists(_ != principal.realUser) && !principal.administrator) {
+      throw new IllegalArgumentException("The requested user is not accessible.")
     }
-
     val clonedConf = frontendService.getConf.clone
-    stringArgument(arguments, "engine_type").foreach(clonedConf.set(ENGINE_TYPE, _))
-    stringArgument(arguments, "share_level").foreach(clonedConf.set(ENGINE_SHARE_LEVEL, _))
-    stringArgument(arguments, "subdomain")
-      .foreach(value => clonedConf.set(ENGINE_SHARE_LEVEL_SUBDOMAIN, Some(value)))
-
-    val engine = new Engine(
-      KYUUBI_VERSION,
-      effectiveUser,
-      clonedConf.get(ENGINE_TYPE),
-      clonedConf.get(ENGINE_SHARE_LEVEL),
-      clonedConf.get(ENGINE_SHARE_LEVEL_SUBDOMAIN).getOrElse(""),
-      null,
-      clonedConf.get(HA_NAMESPACE),
-      Collections.emptyMap())
-
     if (!ServiceDiscovery.supportServiceDiscovery(clonedConf)) {
       return engineResult(
         discoveryEnabled = false,
-        Collections.emptyList[AnyRef](),
-        limit = limit)
+        Seq.empty[AnyRef].asJava)
     }
-
-    val engineSpace = calculateEngineSpace(engine)
-    val engineNodes = ListBuffer[ServiceNodeInfo]()
+    val engineTypes = stringArgument(arguments, "engine_type").map(Seq(_)).getOrElse(ENGINE_TYPES)
+    val shareLevels = stringArgument(arguments, "share_level").map(Seq(_)).getOrElse(SHARE_LEVELS)
+    val requestedNamespace = stringArgument(arguments, "subdomain")
+    val visibleUser = requestedUser.orElse {
+      if (principal.administrator) None else Some(principal.realUser)
+    }
+    lazy val visibleGroup = visibleUser.map(user =>
+      frontendService.sessionManager.groupProvider.primaryGroup(
+        user,
+        frontendService.getConf.getAll.asJava))
+    val registrations = ListBuffer[EngineRegistration]()
     val failures = ListBuffer[PeerFailure]()
     var truncated = false
+    var inspectedNamespaces = 0
     try {
       withDiscoveryClient(clonedConf) { client =>
-        val namespaces = stringArgument(arguments, "subdomain") match {
-          case Some(_) if !client.pathNonExists(engineSpace) => Seq(engineSpace)
-          case Some(_) => Seq.empty
-          case None if !client.pathNonExists(engineSpace) =>
-            val children = client.getChildren(engineSpace).sorted
-            if (children.size > MAX_ENGINE_NAMESPACES) {
-              truncated = true
+        val roots = for {
+          engineType <- engineTypes
+          shareLevel <- shareLevels
+        } yield {
+          val name =
+            s"${clonedConf.get(HA_NAMESPACE)}_${KYUUBI_VERSION}_${shareLevel}_${engineType}"
+          (DiscoveryPaths.makePath(null, name), engineType, shareLevel)
+        }
+        val rootIterator = roots.iterator
+        while (rootIterator.hasNext && registrations.size <= limit && !truncated) {
+          val (root, engineType, shareLevel) = rootIterator.next()
+          if (!client.pathNonExists(root)) {
+            val owners = client.getChildren(root).sorted.filter { owner =>
+              shareLevel match {
+                case share if share == ShareLevel.GROUP.toString =>
+                  visibleGroup.forall(_ == owner)
+                case share
+                    if share == ShareLevel.USER.toString ||
+                      share == ShareLevel.CONNECTION.toString =>
+                  visibleUser.forall(_ == owner)
+                case _ => true
+              }
             }
-            children.take(MAX_ENGINE_NAMESPACES).map(child => s"$engineSpace/$child")
-          case _ => Seq.empty
+            val ownerIterator = owners.iterator
+            while (ownerIterator.hasNext && registrations.size <= limit && !truncated) {
+              val owner = ownerIterator.next()
+              val ownerPath = DiscoveryPaths.makePath(root, owner)
+              val namespaces = requestedNamespace match {
+                case Some(value) =>
+                  val path = DiscoveryPaths.makePath(ownerPath, value)
+                  if (client.pathNonExists(path)) Seq.empty else Seq(value)
+                case None => client.getChildren(ownerPath).sorted
+              }
+              val namespaceIterator = namespaces.iterator
+              while (namespaceIterator.hasNext && registrations.size <= limit && !truncated) {
+                if (inspectedNamespaces >= MAX_ENGINE_NAMESPACES) {
+                  truncated = true
+                } else {
+                  val namespace = namespaceIterator.next()
+                  inspectedNamespaces += 1
+                  val path = DiscoveryPaths.makePath(ownerPath, namespace)
+                  val remaining = limit + 1 - registrations.size
+                  registrations ++= client.getServiceNodesInfoOrThrow(path, Some(remaining)).map(
+                    EngineRegistration(owner, engineType, shareLevel, namespace, _))
+                }
+              }
+              if (namespaceIterator.hasNext) truncated = true
+            }
+            if (ownerIterator.hasNext) truncated = true
+          }
         }
-        val namespaceIterator = namespaces.iterator
-        while (namespaceIterator.hasNext && engineNodes.size <= limit) {
-          val remaining = limit + 1 - engineNodes.size
-          engineNodes ++= client.getServiceNodesInfoOrThrow(
-            namespaceIterator.next(),
-            Some(remaining))
-        }
-        if (namespaceIterator.hasNext || engineNodes.size > limit) {
-          truncated = true
-        }
+        if (rootIterator.hasNext) truncated = true
       }
     } catch {
       case NonFatal(e) =>
         debug("Engine service discovery failed", e)
         failures += PeerFailure("service-discovery", "unavailable")
     }
-    val engines = engineNodes.take(limit).map(node =>
+    val engines = registrations.take(limit).map(registration =>
       Map[String, Object](
-        "version" -> engine.getVersion,
-        "user" -> engine.getUser,
-        "engineType" -> engine.getEngineType,
-        "shareLevel" -> engine.getSharelevel,
-        "subdomain" -> node.namespace.split("/").last,
-        "instance" -> node.instance).asJava).asJava
+        "owner" -> registration.owner,
+        "engineType" -> registration.engineType,
+        "shareLevel" -> registration.shareLevel,
+        "namespace" -> registration.namespace,
+        "address" -> registration.node.instance,
+        "version" -> registration.node.version.getOrElse(KYUUBI_VERSION)).asJava).asJava
     engineResult(
       discoveryEnabled = true,
       engines,
-      limit,
       truncated,
       failures.toSeq)
   }
@@ -201,7 +226,14 @@ private[server] class ClusterDiagnosticService(
       arguments: Map[String, AnyRef],
       principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val limit = boundedIntArgument(arguments, "limit", 100, 200)
-    aggregateList(LIST_OPERATIONS, arguments, principal, "operations", "identifier", limit)
+    aggregateList(
+      LIST_OPERATIONS,
+      arguments,
+      principal,
+      "operations",
+      "operationId",
+      "createdAt",
+      limit)
   }
 
   def getOperation(
@@ -260,6 +292,7 @@ private[server] class ClusterDiagnosticService(
       principal: DiagnosticPrincipal,
       resultName: String,
       identifierName: String,
+      createdAtName: String,
       limit: Int): java.util.Map[String, Object] = {
     val fanout = executeAcrossCluster(action, arguments, principal)
     val items = fanout.responses.flatMap(response => listValues(response.payload, "items"))
@@ -267,7 +300,7 @@ private[server] class ClusterDiagnosticService(
       .values
       .map(_.head)
       .toSeq
-      .sortBy(item => longValue(item.get("createTime")))(Ordering.Long.reverse)
+      .sortBy(item => timestampValue(item.get(createdAtName)))(Ordering.Long.reverse)
       .take(limit)
 
     envelope(
@@ -384,7 +417,7 @@ private[server] class ClusterDiagnosticService(
         }
       }
     }
-    val result = FanoutResult(allInstances.size, omittedServers, responses.toSeq, failures.toSeq)
+    val result = FanoutResult(allInstances.size, responses.toSeq, failures.toSeq)
     if (discovery.failures.isEmpty) {
       pruneClients(allInstances.toSet)
     }
@@ -482,21 +515,19 @@ private[server] class ClusterDiagnosticService(
       "partial" -> Boolean.box(fanout.failures.nonEmpty),
       "failedServers" -> failedServers,
       "discoveredServers" -> Int.box(fanout.discoveredServers),
-      "omittedServers" -> Int.box(fanout.omittedServers),
-      "fanoutLimit" -> Int.box(MAX_CLUSTER_PEERS),
       "respondedServers" -> Int.box(fanout.responses.size),
-      "countScope" -> (if (fanout.failures.nonEmpty) {
-                         "responded_servers_only"
-                       } else {
-                         "all_discovered_servers"
-                       }),
       "observedAt" -> Instant.now().toString)).asJava
   }
 
-  private def longValue(value: Object): Long = value match {
+  private def timestampValue(value: Object): Long = value match {
     case number: Number => number.longValue()
     case null => 0L
-    case other => other.toString.toLong
+    case other =>
+      try {
+        Instant.parse(other.toString).toEpochMilli
+      } catch {
+        case NonFatal(_) => 0L
+      }
   }
 
   private def listValues(
@@ -529,7 +560,6 @@ private[server] class ClusterDiagnosticService(
   private def engineResult(
       discoveryEnabled: Boolean,
       engines: java.util.List[_],
-      limit: Int,
       truncated: Boolean = false,
       failures: Seq[PeerFailure] = Seq.empty): java.util.Map[String, Object] = {
     val failedServers = failures.map(failure =>
@@ -540,29 +570,10 @@ private[server] class ClusterDiagnosticService(
       "discoveryEnabled" -> Boolean.box(discoveryEnabled),
       "engines" -> engines,
       "count" -> Int.box(engines.size()),
-      "limit" -> Int.box(limit),
       "truncated" -> Boolean.box(truncated),
       "partial" -> Boolean.box(truncated || failures.nonEmpty),
-      "source" -> "ha_service_discovery",
-      "countScope" -> (if (truncated || failures.nonEmpty) {
-                         "observed_registrations_only"
-                       } else {
-                         "all_discovered_registrations"
-                       }),
       "failedServers" -> failedServers,
       "observedAt" -> Instant.now().toString).asJava
-  }
-
-  private def calculateEngineSpace(engine: Engine): String = {
-    val userOrGroup = engine.getSharelevel match {
-      case "GROUP" => frontendService.sessionManager.groupProvider.primaryGroup(
-          engine.getUser,
-          frontendService.getConf.getAll.asJava)
-      case _ => engine.getUser
-    }
-    val engineSpace =
-      s"${engine.getNamespace}_${engine.getVersion}_${engine.getSharelevel}_${engine.getEngineType}"
-    DiscoveryPaths.makePath(engineSpace, userOrGroup, engine.getSubdomain)
   }
 
   private def newFanoutExecutor(): ExecutorService = {
@@ -583,6 +594,8 @@ private[server] class ClusterDiagnosticService(
 
 private[server] object ClusterDiagnosticService {
   private val MAX_CONCURRENT_PEERS = 16
+  private val ENGINE_TYPES = EngineType.values.toSeq.map(_.toString)
+  private val SHARE_LEVELS = ShareLevel.values.toSeq.map(_.toString)
   private val MAX_CLUSTER_PEERS = 64
   private val MAX_ENGINE_NAMESPACES = 200
   private val MAX_ENGINE_RESULTS = 200
@@ -599,9 +612,14 @@ private[server] object ClusterDiagnosticService {
       response: Option[PeerResponse],
       failure: Option[PeerFailure])
   private case class PeerFailure(instance: String, reason: String)
+  private case class EngineRegistration(
+      owner: String,
+      engineType: String,
+      shareLevel: String,
+      namespace: String,
+      node: ServiceNodeInfo)
   private case class FanoutResult(
       discoveredServers: Int,
-      omittedServers: Int,
       responses: Seq[PeerResponse],
       failures: Seq[PeerFailure])
   private case class DiscoveryResult(

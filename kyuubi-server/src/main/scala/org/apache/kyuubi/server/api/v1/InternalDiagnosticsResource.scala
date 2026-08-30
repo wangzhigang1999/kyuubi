@@ -22,8 +22,6 @@ import javax.ws.rs.core.MediaType
 
 import scala.collection.JavaConverters._
 
-import com.fasterxml.jackson.databind.ObjectMapper
-
 import org.apache.kyuubi.config.KyuubiConf.FRONTEND_MCP_ENABLED
 import org.apache.kyuubi.server.api.ApiRequestContext
 import org.apache.kyuubi.server.diagnostics.{DiagnosticPrincipal, DiagnosticService}
@@ -59,6 +57,6 @@ private[v1] class InternalDiagnosticsResource extends ApiRequestContext {
       realUser,
       fe.getIpAddress,
       fe.isAdministrator(realUser))
-    new DiagnosticService(fe, new ObjectMapper()).execute(action, arguments, principal)
+    new DiagnosticService(fe).execute(action, arguments, principal)
   }
 }

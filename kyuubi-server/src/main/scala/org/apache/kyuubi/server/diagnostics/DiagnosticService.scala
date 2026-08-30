@@ -18,17 +18,14 @@
 package org.apache.kyuubi.server.diagnostics
 
 import java.lang.management.ManagementFactory
+import java.time.Instant
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
 import scala.util.control.NonFatal
 
-import com.fasterxml.jackson.core.`type`.TypeReference
-import com.fasterxml.jackson.databind.ObjectMapper
-
 import org.apache.kyuubi.operation.{KyuubiOperation, OperationHandle}
 import org.apache.kyuubi.server.KyuubiRestFrontendService
-import org.apache.kyuubi.server.api.ApiUtils
 import org.apache.kyuubi.session.{KyuubiSession, SessionHandle}
 import org.apache.kyuubi.util.ThriftUtils
 
@@ -41,9 +38,7 @@ private[server] case class DiagnosticPrincipal(
  * Node-local diagnostic primitives invoked by the cluster coordinator locally or through the
  * authenticated internal REST endpoint.
  */
-private[server] class DiagnosticService(
-    frontendService: KyuubiRestFrontendService,
-    objectMapper: ObjectMapper) {
+private[server] class DiagnosticService(frontendService: KyuubiRestFrontendService) {
 
   import DiagnosticService._
 
@@ -114,7 +109,7 @@ private[server] class DiagnosticService(
       .toSeq
       .sortBy(_.createTime)(Ordering.Long.reverse)
       .take(limit)
-      .map(session => safeSessionData(ApiUtils.sessionData(session)))
+      .map(safeSessionData)
       .asJava
     Map[String, Object]("items" -> sessions).asJava
   }
@@ -127,7 +122,7 @@ private[server] class DiagnosticService(
         val sessionId = requiredStringArgument(arguments, "session_id")
         frontendService.sessionManager.getSessionOption(SessionHandle.fromUUID(sessionId)) match {
           case Some(value: KyuubiSession) if canAccess(principal, value.user) =>
-            Some(safeSessionData(ApiUtils.sessionData(value)))
+            Some(safeSessionData(value))
           case _ => None
         }
       } catch {
@@ -151,11 +146,11 @@ private[server] class DiagnosticService(
       .filter(operation => canAccess(principal, operation.getSession.user))
       .filter(operation => requestedUser.forall(_ == operation.getSession.user))
       .filter(operation => sessionId.forall(_ == operation.getSession.handle.identifier.toString))
-      .filter(operation => state.forall(_.equalsIgnoreCase(operation.getStatus.toString)))
+      .filter(operation => state.forall(_.equalsIgnoreCase(operation.getStatus.state.toString)))
       .toSeq
       .sortBy(_.getOperationEvent.createTime)(Ordering.Long.reverse)
       .take(limit)
-      .map(operation => safeOperationData(ApiUtils.operationData(operation)))
+      .map(safeOperationData)
       .asJava
     Map[String, Object]("items" -> operations).asJava
   }
@@ -164,8 +159,7 @@ private[server] class DiagnosticService(
       arguments: Map[String, AnyRef],
       principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
     val operationId = requiredStringArgument(arguments, "operation_id")
-    optionalValue(accessibleOperation(operationId, principal).map(operation =>
-      safeOperationData(ApiUtils.operationData(operation))))
+    optionalValue(accessibleOperation(operationId, principal).map(safeOperationData))
   }
 
   private def readOperationLog(
@@ -263,11 +257,43 @@ private[server] class DiagnosticService(
   private def canAccess(principal: DiagnosticPrincipal, owner: String): Boolean =
     principal.administrator || owner == principal.realUser
 
-  private def safeSessionData(value: Object): java.util.Map[String, Object] =
-    safeSessionProjection(objectMapper.convertValue(value, MAP_TYPE))
+  private def safeSessionData(session: KyuubiSession): java.util.Map[String, Object] = {
+    val now = System.currentTimeMillis()
+    Map[String, Object](
+      "sessionId" -> session.handle.identifier.toString,
+      "user" -> session.user,
+      "clientIp" -> session.ipAddress,
+      "sessionType" -> session.sessionType.toString,
+      "server" -> session.connectionUrl,
+      "createdAt" -> Instant.ofEpochMilli(session.createTime).toString,
+      "ageMs" -> Long.box(math.max(0L, now - session.createTime)),
+      "idleMs" -> Long.box(session.getNoOperationTime),
+      "operationCount" -> Int.box(
+        session.getSessionEvent.map(_.totalOperations).getOrElse(0))).asJava
+  }
 
-  private def safeOperationData(value: Object): java.util.Map[String, Object] =
-    safeOperationProjection(objectMapper.convertValue(value, MAP_TYPE))
+  private def safeOperationData(operation: KyuubiOperation): java.util.Map[String, Object] = {
+    val event = operation.getOperationEvent
+    val now = System.currentTimeMillis()
+    val startedAt = Option(event.startTime).filter(_ > 0).map(time =>
+      Instant.ofEpochMilli(time).toString).orNull
+    val completedAt = Option(event.completeTime).filter(_ > 0).map(time =>
+      Instant.ofEpochMilli(time).toString).orNull
+    val elapsedFrom = if (event.startTime > 0) event.startTime else event.createTime
+    val elapsedUntil = if (event.completeTime > 0) event.completeTime else now
+    Map[String, Object](
+      "operationId" -> event.statementId,
+      "state" -> operation.getStatus.state.toString,
+      "createdAt" -> Instant.ofEpochMilli(event.createTime).toString,
+      "startedAt" -> startedAt,
+      "completedAt" -> completedAt,
+      "elapsedMs" -> Long.box(math.max(0L, elapsedUntil - elapsedFrom)),
+      "sessionId" -> event.sessionId,
+      "user" -> event.sessionUser,
+      "sessionType" -> event.sessionType,
+      "server" -> operation.getSession.asInstanceOf[KyuubiSession].connectionUrl,
+      "metrics" -> event.metrics.asJava).asJava
+  }
 }
 
 private[server] object DiagnosticService {
@@ -281,45 +307,7 @@ private[server] object DiagnosticService {
   val LIST_SERVER_LOGS = "list_server_logs"
   val READ_SERVER_LOG = "read_server_log"
 
-  private val MAP_TYPE = new TypeReference[java.util.Map[String, Object]]() {}
-  private val SAFE_SESSION_FIELDS = Seq(
-    "identifier",
-    "user",
-    "createTime",
-    "duration",
-    "idleTime",
-    "sessionType",
-    "kyuubiInstance",
-    "engineId",
-    "engineName",
-    "engineUrl",
-    "totalOperations")
-  private val SAFE_OPERATION_FIELDS = Seq(
-    "identifier",
-    "state",
-    "createTime",
-    "startTime",
-    "completeTime",
-    "sessionId",
-    "sessionUser",
-    "sessionType",
-    "kyuubiInstance",
-    "metrics")
-
   private[server] case class BoundedLog(lines: Seq[String], truncated: Boolean)
-
-  private[server] def safeSessionProjection(
-      source: java.util.Map[String, Object]): java.util.Map[String, Object] =
-    safeProjection(source, SAFE_SESSION_FIELDS)
-
-  private[server] def safeOperationProjection(
-      source: java.util.Map[String, Object]): java.util.Map[String, Object] =
-    safeProjection(source, SAFE_OPERATION_FIELDS)
-
-  private def safeProjection(
-      source: java.util.Map[String, Object],
-      allowedFields: Seq[String]): java.util.Map[String, Object] =
-    allowedFields.flatMap(name => Option(source.get(name)).map(name -> _)).toMap.asJava
 
   private[server] def boundedRedactedLog(
       source: Seq[String],

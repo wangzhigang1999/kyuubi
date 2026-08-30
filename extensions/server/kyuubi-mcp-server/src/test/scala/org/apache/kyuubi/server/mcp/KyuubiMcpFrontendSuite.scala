@@ -22,8 +22,6 @@ import java.nio.file.{Files, Paths}
 import javax.servlet.http.HttpServletResponse
 import javax.ws.rs.client.Entity
 
-import scala.collection.JavaConverters._
-
 import org.apache.kyuubi.{RestClientTestHelper, RestFrontendTestHelper, Utils}
 import org.apache.kyuubi.config.KyuubiConf
 import org.apache.kyuubi.config.KyuubiConf._
@@ -91,10 +89,9 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(callResult.contains("\"sessions\":[]"))
     assert(callResult.contains("\"partial\":false"))
     assert(callResult.contains("\"discoveredServers\":1"))
-    assert(callResult.contains("\"omittedServers\":0"))
-    assert(callResult.contains("\"fanoutLimit\":64"))
     assert(callResult.contains("\"respondedServers\":1"))
-    assert(callResult.contains("\"countScope\":\"all_discovered_servers\""))
+    assert(!callResult.contains("\"fanoutLimit\""))
+    assert(!callResult.contains("\"countScope\""))
 
     val missingArgumentResponse = call(
       """{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_session",""" +
@@ -182,21 +179,7 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(promptsResponse.readEntity(classOf[String]).contains("\"code\":-32601"))
   }
 
-  test("MCP diagnostic projections exclude statements, configuration and credentials") {
-    val source = Map[String, Object](
-      "identifier" -> "id",
-      "user" -> "alice",
-      "state" -> "RUNNING",
-      "conf" -> Map("password" -> "secret").asJava,
-      "statement" -> "select secret from table",
-      "exception" -> "token=secret",
-      "ipAddr" -> "127.0.0.1").asJava
-
-    val session = DiagnosticService.safeSessionProjection(source)
-    assert(session.keySet().asScala === Set("identifier", "user"))
-    val operation = DiagnosticService.safeOperationProjection(source)
-    assert(operation.keySet().asScala === Set("identifier", "state"))
-
+  test("MCP diagnostic logs redact credentials and enforce bounds") {
     val logLine = "password=secret Bearer ey.secret token:another jdbc://user:pass@host"
     val redacted = ServerLogAccessor.redact(logLine)
     assert(!redacted.contains("secret"))

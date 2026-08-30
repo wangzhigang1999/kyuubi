@@ -43,8 +43,9 @@ public final class ListEnginesTool
 
   @Override
   public String description() {
-    return "List engine registrations visible to the authenticated user directly from HA service "
-        + "discovery. This does not test Kyuubi Server or engine process reachability.";
+    return "List all engine registrations visible to the authenticated user from HA service "
+        + "discovery. Optional filters narrow the result. A registration does not prove process "
+        + "reachability.";
   }
 
   @Override
@@ -83,15 +84,19 @@ public final class ListEnginesTool
   public record Args(
       @JsonProperty("user")
           @JsonPropertyDescription(
-              "User whose engine registrations are inspected. A different user requires administrator permission.")
+              "Optional owner filter. Regular users can inspect only their own user-scoped registrations; administrators search all owners when omitted.")
           @McpToolProperty(maxLength = 256)
           String user,
-      @JsonProperty("engine_type") @JsonPropertyDescription("Engine type filter.")
+      @JsonProperty("engine_type")
+          @JsonPropertyDescription(
+              "Optional engine type filter; all types are searched by default.")
           EngineType engineType,
-      @JsonProperty("share_level") @JsonPropertyDescription("Engine share-level filter.")
+      @JsonProperty("share_level")
+          @JsonPropertyDescription(
+              "Optional engine share-level filter; all levels are searched by default.")
           ShareLevel shareLevel,
       @JsonProperty("subdomain")
-          @JsonPropertyDescription("Engine share-level subdomain filter.")
+          @JsonPropertyDescription("Optional registration namespace filter.")
           @McpToolProperty(maxLength = 256)
           String subdomain,
       @JsonProperty("limit")
@@ -110,8 +115,6 @@ public final class ListEnginesTool
       @JsonProperty(required = true)
           @JsonPropertyDescription("Number of engine registrations returned, not a hidden total.")
           int count,
-      @JsonProperty(required = true) @JsonPropertyDescription("Maximum registrations requested.")
-          int limit,
       @JsonProperty(required = true)
           @JsonPropertyDescription("True when additional namespaces or registrations may exist.")
           boolean truncated,
@@ -119,10 +122,6 @@ public final class ListEnginesTool
           @JsonPropertyDescription(
               "True when service discovery failed or the result was truncated.")
           boolean partial,
-      @JsonProperty(required = true) @JsonPropertyDescription("Registry used for this result.")
-          Source source,
-      @JsonProperty(required = true) @JsonPropertyDescription("Scope covered by count and engines.")
-          CountScope countScope,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Service-discovery failures that made the result incomplete.")
           List<PeerFailure> failedServers,
@@ -133,19 +132,23 @@ public final class ListEnginesTool
 
   public record Engine(
       @JsonProperty(required = true)
-          @JsonPropertyDescription("Kyuubi version encoded in the registration.")
-          String version,
-      @JsonProperty(required = true) @JsonPropertyDescription("Engine owner.") String user,
+          @JsonPropertyDescription(
+              "User, group, or server identity that owns this registration namespace.")
+          String owner,
       @JsonProperty(required = true) @JsonPropertyDescription("Registered engine type.")
-          String engineType,
+          EngineType engineType,
       @JsonProperty(required = true) @JsonPropertyDescription("Registered engine share level.")
-          String shareLevel,
-      @JsonProperty(required = true) @JsonPropertyDescription("Registered share-level subdomain.")
-          String subdomain,
+          ShareLevel shareLevel,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription("Registration namespace within the owner and share level.")
+          String namespace,
       @JsonProperty(required = true)
           @JsonPropertyDescription(
-              "Service registration value; it does not prove process reachability.")
-          String instance) {}
+              "Registered engine address; it does not prove process reachability.")
+          String address,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription("Kyuubi version encoded in the registration.")
+          String version) {}
 
   public record PeerFailure(
       @JsonProperty(required = true)
@@ -170,14 +173,5 @@ public final class ListEnginesTool
     GROUP,
     SERVER_LOCAL,
     SERVER
-  }
-
-  public enum Source {
-    ha_service_discovery
-  }
-
-  public enum CountScope {
-    all_discovered_registrations,
-    observed_registrations_only
   }
 }

@@ -100,30 +100,18 @@ public final class ListSessionsTool
               "Returned sessions; not a cluster-wide total when partial is true.")
           int count,
       @JsonProperty(required = true)
-          @JsonPropertyDescription(
-              "True when discovery failed or a discovered server failed or was omitted.")
+          @JsonPropertyDescription("True when the result does not cover every discovered server.")
           boolean partial,
       @JsonProperty(required = true)
           @JsonPropertyDescription(
               "Failures that made this result incomplete; a failure does not prove a process stopped.")
           List<PeerFailure> failedServers,
       @JsonProperty(required = true)
-          @JsonPropertyDescription(
-              "Distinct server registrations discovered before the fanout limit.")
+          @JsonPropertyDescription("Distinct Kyuubi Server registrations found by HA discovery.")
           int discoveredServers,
-      @JsonProperty(required = true)
-          @JsonPropertyDescription(
-              "Discovered registrations not queried because fanoutLimit was reached.")
-          int omittedServers,
-      @JsonProperty(required = true)
-          @JsonPropertyDescription("Maximum discovered servers queried by one call.")
-          int fanoutLimit,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Servers that successfully returned this diagnostic result.")
           int respondedServers,
-      @JsonProperty(required = true)
-          @JsonPropertyDescription("Scope covered by sessions and count.")
-          CountScope countScope,
       @JsonProperty(required = true)
           @JsonPropertyDescription("UTC time when this observation completed.")
           @McpToolProperty(format = "date-time")
@@ -131,33 +119,29 @@ public final class ListSessionsTool
 
   public record Session(
       @JsonProperty(required = true) @JsonPropertyDescription("Stable Kyuubi session identifier.")
-          String identifier,
+          String sessionId,
       @JsonProperty(required = true) @JsonPropertyDescription("Session owner.") String user,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("Session creation time as Unix epoch milliseconds.")
-          long createTime,
-      @JsonProperty(required = true)
-          @JsonPropertyDescription("Session age in milliseconds at observation time.")
-          long duration,
-      @JsonProperty(required = true)
-          @JsonPropertyDescription("Session idle duration in milliseconds at observation time.")
-          long idleTime,
+          @JsonPropertyDescription("Client address recorded when the session opened.")
+          String clientIp,
       @JsonProperty(required = true) @JsonPropertyDescription("Kyuubi session type.")
-          String sessionType,
+          SessionType sessionType,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Kyuubi Server instance that owns the session.")
-          String kyuubiInstance,
-      @JsonPropertyDescription("Associated engine identifier when available.")
-          @McpToolProperty(nullable = true)
-          String engineId,
-      @JsonPropertyDescription("Associated engine name when available.")
-          @McpToolProperty(nullable = true)
-          String engineName,
-      @JsonPropertyDescription("Associated engine URL when available.")
-          @McpToolProperty(nullable = true)
-          String engineUrl,
-      @JsonProperty(required = true) @JsonPropertyDescription("Operations created in this session.")
-          int totalOperations) {}
+          String server,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription("UTC time when the session opened.")
+          @McpToolProperty(format = "date-time")
+          String createdAt,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription("Session age in milliseconds at observation time.")
+          long ageMs,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription("Time without an active operation, in milliseconds.")
+          long idleMs,
+      @JsonProperty(required = true)
+          @JsonPropertyDescription("Operations created since this session opened.")
+          int operationCount) {}
 
   public record PeerFailure(
       @JsonProperty(required = true)
@@ -170,10 +154,5 @@ public final class ListSessionsTool
   public enum SessionType {
     INTERACTIVE,
     BATCH
-  }
-
-  public enum CountScope {
-    all_discovered_servers,
-    responded_servers_only
   }
 }

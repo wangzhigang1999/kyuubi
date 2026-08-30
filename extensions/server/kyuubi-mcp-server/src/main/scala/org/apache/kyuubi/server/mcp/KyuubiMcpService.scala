@@ -65,7 +65,9 @@ private[server] object KyuubiMcpService {
   private val SERVER_INSTRUCTIONS =
     "Apache Kyuubi read-only cluster monitoring and diagnosis. Call get_cluster_overview first, " +
       "then make targeted follow-up calls; do not launch exhaustive cluster-wide tools in " +
-      "parallel. Always inspect partial, countScope, respondedServers, and failedServers. When " +
+      "parallel. Always inspect partial, discoveredServers, respondedServers, and failedServers. " +
+      "A failed server response proves only that this bounded diagnostic call did not complete; " +
+      "it does not prove a stale registration or a stopped process. When " +
       "partial is true, empty results and zero counts describe responded servers only. Do not " +
       "infer TCP connectivity, process termination, GC pressure, dependency health, SQL " +
       "availability, or workload loss from a timeout or incomplete response. Users can " +
