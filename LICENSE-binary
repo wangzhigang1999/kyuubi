@@ -310,6 +310,7 @@ org.apache.arrow:arrow-compression
 org.apache.kafka:kafka-clients
 org.xerial:sqlite-jdbc
 com.openai:openai-java
+com.fasterxml:classmate
 com.github.victools:jsonschema-generator
 com.github.victools:jsonschema-module-jackson
 com.networknt:json-schema-validator

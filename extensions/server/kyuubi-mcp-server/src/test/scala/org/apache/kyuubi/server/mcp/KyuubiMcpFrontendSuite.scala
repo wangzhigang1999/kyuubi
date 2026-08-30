@@ -58,7 +58,8 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(tools.contains("\"maximum\":200"))
     assert(tools.contains("\"pattern\":\"^[A-Za-z0-9_-]+$\""))
     assert(tools.contains("\"outputSchema\""))
-    assert(tools.contains("responded_servers_only means the result is not a cluster-wide"))
+    assert(tools.contains("Servers that successfully returned this diagnostic result."))
+    assert(tools.contains("\"type\":[\"object\",\"null\"]"))
     assert(tools.contains("\"name\":\"test_extension_status\""))
 
     val extensionResponse = call(

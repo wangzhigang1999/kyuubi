@@ -30,6 +30,7 @@ arrow-memory-netty/16.0.0//arrow-memory-netty-16.0.0.jar
 arrow-vector/16.0.0//arrow-vector-16.0.0.jar
 checker-qual/3.42.0//checker-qual-3.42.0.jar
 classgraph/4.8.138//classgraph-4.8.138.jar
+classmate/1.7.0//classmate-1.7.0.jar
 commons-codec/1.17.1//commons-codec-1.17.1.jar
 commons-lang3/3.18.0//commons-lang3-3.18.0.jar
 error_prone_annotations/2.36.0//error_prone_annotations-2.36.0.jar
@@ -99,6 +100,8 @@ jetty-util-ajax/9.4.57.v20241219//jetty-util-ajax-9.4.57.v20241219.jar
 jetty-util/9.4.57.v20241219//jetty-util-9.4.57.v20241219.jar
 jline/2.14.6//jline-2.14.6.jar
 json-schema-validator/2.0.4//json-schema-validator-2.0.4.jar
+jsonschema-generator/4.37.0//jsonschema-generator-4.37.0.jar
+jsonschema-module-jackson/4.37.0//jsonschema-module-jackson-4.37.0.jar
 jspecify/1.0.0//jspecify-1.0.0.jar
 jul-to-slf4j/1.7.36//jul-to-slf4j-1.7.36.jar
 kafka-clients/3.9.2//kafka-clients-3.9.2.jar

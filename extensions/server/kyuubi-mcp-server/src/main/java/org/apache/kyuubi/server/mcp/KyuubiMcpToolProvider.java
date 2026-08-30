@@ -18,25 +18,21 @@
 package org.apache.kyuubi.server.mcp;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.modelcontextprotocol.json.McpJsonMapper;
-import io.modelcontextprotocol.spec.McpSchema;
 import java.util.Collection;
-import java.util.Map;
 import java.util.Objects;
-import java.util.function.BiFunction;
 import org.apache.kyuubi.server.KyuubiRestFrontendService;
 
 /**
  * Discovers trusted, deployment-specific MCP tools through {@link java.util.ServiceLoader}.
  *
  * <p>Provider jars run inside the Kyuubi Server process and are therefore part of the trusted
- * server installation. Kyuubi validates their schemas and read-only declarations and wraps their
- * calls with the same input validation, concurrency controls, audit logging, and metrics used by
- * built-in tools. It cannot sandbox arbitrary provider code.
+ * server installation. Kyuubi generates JSON schemas from their argument and response classes and
+ * wraps their calls with the same input validation, audit logging, and metrics used by built-in
+ * tools. It cannot sandbox arbitrary provider code.
  */
 public interface KyuubiMcpToolProvider extends AutoCloseable {
 
-  Collection<Tool> tools(Context context);
+  Collection<? extends Tool<?, ?>> tools(Context context);
 
   @Override
   default void close() {}
@@ -45,15 +41,10 @@ public interface KyuubiMcpToolProvider extends AutoCloseable {
   final class Context {
     private final KyuubiRestFrontendService frontendService;
     private final ObjectMapper objectMapper;
-    private final McpJsonMapper jsonMapper;
 
-    public Context(
-        KyuubiRestFrontendService frontendService,
-        ObjectMapper objectMapper,
-        McpJsonMapper jsonMapper) {
+    public Context(KyuubiRestFrontendService frontendService, ObjectMapper objectMapper) {
       this.frontendService = Objects.requireNonNull(frontendService, "frontendService");
       this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
-      this.jsonMapper = Objects.requireNonNull(jsonMapper, "jsonMapper");
     }
 
     public KyuubiRestFrontendService frontendService() {
@@ -62,10 +53,6 @@ public interface KyuubiMcpToolProvider extends AutoCloseable {
 
     public ObjectMapper objectMapper() {
       return objectMapper;
-    }
-
-    public McpJsonMapper jsonMapper() {
-      return jsonMapper;
     }
   }
 
@@ -100,24 +87,67 @@ public interface KyuubiMcpToolProvider extends AutoCloseable {
     }
   }
 
-  /** A tool definition and its synchronous handler. */
-  final class Tool {
-    private final McpSchema.Tool definition;
-    private final BiFunction<Caller, Map<String, Object>, McpSchema.CallToolResult> handler;
+  /** A typed, synchronous, read-only diagnostic tool. */
+  interface Tool<A, R> {
 
-    public Tool(
-        McpSchema.Tool definition,
-        BiFunction<Caller, Map<String, Object>, McpSchema.CallToolResult> handler) {
-      this.definition = Objects.requireNonNull(definition, "definition");
-      this.handler = Objects.requireNonNull(handler, "handler");
+    String name();
+
+    String description();
+
+    Class<A> argumentsType();
+
+    Class<R> responseType();
+
+    Result<R> call(Caller caller, A arguments) throws Exception;
+  }
+
+  /** The protocol-neutral outcome of a tool call. */
+  final class Result<R> {
+    public enum Status {
+      SUCCESS,
+      ERROR,
+      DENIED
     }
 
-    public McpSchema.Tool definition() {
-      return definition;
+    private final Status status;
+    private final String message;
+    private final R response;
+
+    private Result(Status status, String message, R response) {
+      this.status = Objects.requireNonNull(status, "status");
+      this.message = message;
+      this.response = response;
     }
 
-    public BiFunction<Caller, Map<String, Object>, McpSchema.CallToolResult> handler() {
-      return handler;
+    public static <R> Result<R> success(R response) {
+      return new Result<>(Status.SUCCESS, null, Objects.requireNonNull(response, "response"));
+    }
+
+    public static <R> Result<R> error(String message) {
+      return new Result<>(Status.ERROR, Objects.requireNonNull(message, "message"), null);
+    }
+
+    public static <R> Result<R> error(String message, R response) {
+      return new Result<>(
+          Status.ERROR,
+          Objects.requireNonNull(message, "message"),
+          Objects.requireNonNull(response, "response"));
+    }
+
+    public static <R> Result<R> denied(String message) {
+      return new Result<>(Status.DENIED, Objects.requireNonNull(message, "message"), null);
+    }
+
+    public Status status() {
+      return status;
+    }
+
+    public String message() {
+      return message;
+    }
+
+    public R response() {
+      return response;
     }
   }
 }

@@ -17,13 +17,31 @@
 
 package org.apache.kyuubi.server.mcp;
 
-import java.util.Collection;
-import java.util.List;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
-public class TestKyuubiMcpToolProvider implements KyuubiMcpToolProvider {
+/** JSON Schema constraints not represented by Jackson annotations. */
+@Retention(RetentionPolicy.RUNTIME)
+@Target({
+  ElementType.FIELD,
+  ElementType.METHOD,
+  ElementType.PARAMETER,
+  ElementType.RECORD_COMPONENT
+})
+public @interface McpToolProperty {
+  int minLength() default -1;
 
-  @Override
-  public Collection<? extends Tool<?, ?>> tools(Context context) {
-    return List.of(new TestExtensionStatusTool());
-  }
+  int maxLength() default -1;
+
+  String pattern() default "";
+
+  long minimum() default Long.MIN_VALUE;
+
+  long maximum() default Long.MAX_VALUE;
+
+  String format() default "";
+
+  boolean nullable() default false;
 }

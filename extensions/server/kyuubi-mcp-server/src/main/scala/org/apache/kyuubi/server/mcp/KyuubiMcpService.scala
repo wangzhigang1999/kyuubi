@@ -17,8 +17,7 @@
 
 package org.apache.kyuubi.server.mcp
 
-import java.util.{Collections, ServiceLoader}
-import java.util.function.BiFunction
+import java.util.ServiceLoader
 
 import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
@@ -27,9 +26,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import io.modelcontextprotocol.common.McpTransportContext
 import io.modelcontextprotocol.json.jackson2.JacksonMcpJsonMapper
 import io.modelcontextprotocol.server.McpServer
-import io.modelcontextprotocol.server.McpStatelessServerFeatures
 import io.modelcontextprotocol.server.McpStatelessSyncServer
-import io.modelcontextprotocol.spec.McpSchema
 
 import org.apache.kyuubi.{KYUUBI_VERSION, Logging}
 import org.apache.kyuubi.server.KyuubiRestFrontendService
@@ -43,13 +40,11 @@ private[server] class KyuubiMcpService(frontendService: KyuubiRestFrontendServic
   private val jsonMapper = new JacksonMcpJsonMapper(objectMapper)
   val transport = new KyuubiMcpHttpTransport(jsonMapper, requestId => requestContext(requestId))
   private val tools = new KyuubiMcpTools(frontendService, objectMapper, jsonMapper)
-  private val pluginContext = new KyuubiMcpToolProvider.Context(
-    frontendService,
-    objectMapper,
-    jsonMapper)
+  private val pluginContext = new KyuubiMcpToolProvider.Context(frontendService, objectMapper)
   private val pluginProviders = loadPluginProviders()
-  private val specifications = validateUniqueNames(
-    tools.specifications ++ pluginProviders.flatMap(loadPluginTools))
+  private val allTools = validateUniqueNames(
+    tools.builtIns ++ pluginProviders.flatMap(loadPluginTools))
+  private val specifications = allTools.map(tools.specification)
   private val server: McpStatelessSyncServer = McpServer.sync(transport)
     .serverInfo("Apache Kyuubi", KYUUBI_VERSION)
     .instructions(SERVER_INSTRUCTIONS)
@@ -82,7 +77,7 @@ private[server] class KyuubiMcpService(frontendService: KyuubiRestFrontendServic
 
   private def loadPluginTools(
       provider: KyuubiMcpToolProvider)
-      : Seq[McpStatelessServerFeatures.SyncToolSpecification] = {
+      : Seq[KyuubiMcpToolProvider.Tool[_, _]] = {
     val providedTools = Option(provider.tools(pluginContext)).getOrElse {
       throw new IllegalArgumentException(
         s"MCP tool provider ${provider.getClass.getName} returned null")
@@ -92,70 +87,19 @@ private[server] class KyuubiMcpService(frontendService: KyuubiRestFrontendServic
         throw new IllegalArgumentException(
           s"MCP tool provider ${provider.getClass.getName} returned a null tool")
       }
-      validatePluginDefinition(provider, providedTool.definition())
-      val raw = McpStatelessServerFeatures.SyncToolSpecification.builder()
-        .tool(providedTool.definition())
-        .callHandler(new BiFunction[
-          McpTransportContext,
-          McpSchema.CallToolRequest,
-          McpSchema.CallToolResult]() {
-          override def apply(
-              context: McpTransportContext,
-              request: McpSchema.CallToolRequest): McpSchema.CallToolResult = {
-            val caller = new KyuubiMcpToolProvider.Caller(
-              auditContextValue(context, REQUEST_ID),
-              auditContextValue(context, REAL_USER),
-              auditContextValue(context, CLIENT_IP),
-              java.lang.Boolean.TRUE == context.get(ADMINISTRATOR))
-            val arguments = Option(request.arguments())
-              .getOrElse(Collections.emptyMap[String, Object]())
-            providedTool.handler().apply(caller, arguments)
-          }
-        })
-        .build()
-      tools.instrument(raw)
+      providedTool
     }
   }
 
-  private def validatePluginDefinition(
-      provider: KyuubiMcpToolProvider,
-      definition: McpSchema.Tool): Unit = {
-    val providerName = provider.getClass.getName
-    require(
-      definition.name() != null && definition.name().nonEmpty,
-      s"MCP tool provider $providerName returned a tool without a name")
-    require(
-      definition.inputSchema() != null,
-      s"MCP plugin tool ${definition.name()} from $providerName requires an input schema")
-    require(
-      definition.outputSchema() != null,
-      s"MCP plugin tool ${definition.name()} from $providerName requires an output schema")
-    val annotations = definition.annotations()
-    require(
-      annotations != null && java.lang.Boolean.TRUE == annotations.readOnlyHint(),
-      s"MCP plugin tool ${definition.name()} from $providerName must declare readOnlyHint=true")
-    require(
-      java.lang.Boolean.TRUE != annotations.destructiveHint(),
-      s"MCP plugin tool ${definition.name()} from $providerName must not be destructive")
-  }
-
   private def validateUniqueNames(
-      values: Seq[McpStatelessServerFeatures.SyncToolSpecification])
-      : Seq[McpStatelessServerFeatures.SyncToolSpecification] = {
-    val duplicateNames = values.groupBy(_.tool().name()).collect {
+      values: Seq[KyuubiMcpToolProvider.Tool[_, _]])
+      : Seq[KyuubiMcpToolProvider.Tool[_, _]] = {
+    val duplicateNames = values.groupBy(_.name()).collect {
       case (name, matches) if matches.size > 1 => name
     }.toSeq.sorted
     require(duplicateNames.isEmpty, s"Duplicate MCP tool names: ${duplicateNames.mkString(", ")}")
     values
   }
-
-  private def auditContextValue(context: McpTransportContext, name: String): String =
-    Option(context.get(name)).map { value =>
-      value.toString.iterator
-        .map(character => if (Character.isISOControl(character)) '?' else character)
-        .take(MAX_CALLER_VALUE_LENGTH)
-        .mkString
-    }.getOrElse("")
 
   private def requestContext(requestId: Object): McpTransportContext = {
     val realUser = frontendService.getRealUser()
@@ -168,7 +112,6 @@ private[server] class KyuubiMcpService(frontendService: KyuubiRestFrontendServic
 }
 
 private[server] object KyuubiMcpService {
-  private val MAX_CALLER_VALUE_LENGTH = 128
   private val SERVER_INSTRUCTIONS =
     "Apache Kyuubi read-only cluster monitoring and diagnosis. Call get_cluster_overview first, " +
       "then make targeted follow-up calls; do not launch exhaustive cluster-wide tools in " +
