@@ -57,6 +57,17 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(!tools.contains("submit_batch"))
     assert(tools.contains("\"maximum\":200"))
     assert(tools.contains("\"pattern\":\"^[A-Za-z0-9_-]+$\""))
+    assert(tools.contains("\"outputSchema\""))
+    assert(tools.contains("responded_servers_only means the result is not a cluster-wide"))
+    assert(tools.contains("\"name\":\"test_extension_status\""))
+
+    val extensionResponse = call(
+      """{"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":""" +
+        """"test_extension_status","arguments":{}}}""")
+    assert(extensionResponse.getStatus === 200)
+    val extensionResult = extensionResponse.readEntity(classOf[String])
+    assert(extensionResult.contains("\"provider\":\"service_loader\""))
+    assert(extensionResult.contains("\"administrator\":true"))
 
     val overviewResponse = call(
       """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":""" +
@@ -66,10 +77,6 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(overview.contains("\"sessionCount\":0"))
     assert(overview.contains("\"operationCount\":0"))
     assert(overview.contains("\"partial\":false"))
-    val expectedFanoutMode =
-      if (Runtime.version().feature() >= 21) "virtual_threads" else "platform_pool"
-    assert(overview.contains("\"fanoutMode\":\"" + expectedFanoutMode + "\""))
-
     val runtimeResponse = call(
       """{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":""" +
         """"get_server_runtime","arguments":{}}}""")
@@ -94,6 +101,7 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(callResult.contains("\"omittedServers\":0"))
     assert(callResult.contains("\"fanoutLimit\":64"))
     assert(callResult.contains("\"respondedServers\":1"))
+    assert(callResult.contains("\"countScope\":\"all_discovered_servers\""))
 
     val missingArgumentResponse = call(
       """{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_session",""" +

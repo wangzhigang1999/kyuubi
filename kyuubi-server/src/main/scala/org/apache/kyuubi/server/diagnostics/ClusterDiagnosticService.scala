@@ -19,8 +19,7 @@ package org.apache.kyuubi.server.diagnostics
 
 import java.time.Instant
 import java.util.Collections
-import java.util.concurrent.{CompletableFuture, ConcurrentHashMap, ExecutorService, TimeoutException, TimeUnit}
-import java.util.function.Supplier
+import java.util.concurrent.{Callable, ConcurrentHashMap, ExecutorCompletionService, ExecutorService, Future, TimeUnit}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
@@ -54,7 +53,7 @@ private[server] class ClusterDiagnosticService(
   import DiagnosticService._
 
   private val localDiagnostics = new DiagnosticService(frontendService, objectMapper)
-  private val (executor, fanoutMode) = newFanoutExecutor()
+  private val executor = newFanoutExecutor()
   private val clients = new ConcurrentHashMap[String, InternalRestClient]()
 
   def clusterOverview(
@@ -308,7 +307,9 @@ private[server] class ClusterDiagnosticService(
     DIAGNOSTICS_FANOUT_TIME) {
     val discovery = discoverInstances()
     val allInstances = discovery.instances
-    val instances = allInstances.take(MAX_CLUSTER_PEERS)
+    val localInstance = normalizeInstance(frontendService.connectionUrl)
+    val instances = (localInstance +: allInstances.filterNot(_ == localInstance))
+      .take(MAX_CLUSTER_PEERS)
     val failures = ListBuffer[PeerFailure]() ++ discovery.failures
     val omittedServers = allInstances.size - instances.size
     if (omittedServers > 0) {
@@ -317,45 +318,69 @@ private[server] class ClusterDiagnosticService(
         s"$omittedServers servers omitted by the $MAX_CLUSTER_PEERS-server fanout limit")
     }
 
-    val localInstance = normalizeInstance(frontendService.connectionUrl)
     val remoteInstances = instances.filterNot(_ == localInstance)
     if (remoteInstances.nonEmpty && InternalSecurityAccessor.get() == null) {
       throw new IllegalStateException(
         "Cluster diagnostics require kyuubi.internal.security.enabled=true")
     }
 
-    val futures = instances.map { instance =>
-      instance -> CompletableFuture.supplyAsync(
-        new Supplier[PeerResponse] {
-          override def get(): PeerResponse = {
-            val payload = if (instance == localInstance) {
-              localDiagnostics.execute(action, arguments, principal)
-            } else {
-              executeRemote(instance, action, arguments, principal)
-            }
-            PeerResponse(instance, payload)
-          }
-        },
-        executor)
-    }
-
     val deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(FANOUT_DEADLINE_MS)
     val responses = ListBuffer[PeerResponse]()
-    futures.foreach { case (instance, future) =>
+    val completion = new ExecutorCompletionService[PeerAttempt](executor)
+    val pending = remoteInstances.map { instance =>
+      val future = completion.submit(new Callable[PeerAttempt] {
+        override def call(): PeerAttempt = {
+          try {
+            PeerAttempt(
+              instance,
+              Some(PeerResponse(instance, executeRemote(instance, action, arguments, principal))),
+              None)
+          } catch {
+            case NonFatal(e) =>
+              debug(s"Diagnostic request to $instance failed", e)
+              PeerAttempt(instance, None, Some(PeerFailure(instance, peerFailureReason(e))))
+          }
+        }
+      })
+      future -> instance
+    }.toMap
+
+    if (instances.contains(localInstance)) {
+      try {
+        responses += PeerResponse(
+          localInstance,
+          localDiagnostics.execute(action, arguments, principal))
+      } catch {
+        case NonFatal(e) =>
+          error("Local diagnostic request failed", e)
+          failures += PeerFailure(localInstance, "local_failure")
+      }
+    }
+
+    val outstanding = scala.collection.mutable.Map[Future[PeerAttempt], String]() ++ pending
+    while (outstanding.nonEmpty) {
       val remainingNanos = deadlineNanos - System.nanoTime()
-      if (remainingNanos <= 0) {
-        future.cancel(true)
-        failures += PeerFailure(instance, "deadline exceeded")
+      val completed = if (remainingNanos > 0) {
+        completion.poll(remainingNanos, TimeUnit.NANOSECONDS)
       } else {
+        completion.poll()
+      }
+      if (completed == null) {
+        outstanding.foreach { case (future, instance) =>
+          future.cancel(true)
+          failures += PeerFailure(instance, "fanout_deadline")
+        }
+        outstanding.clear()
+      } else {
+        val instance = outstanding.remove(completed).getOrElse("unknown")
         try {
-          responses += future.get(remainingNanos, TimeUnit.NANOSECONDS)
+          val attempt = completed.get()
+          attempt.response.foreach(responses += _)
+          attempt.failure.foreach(failures += _)
         } catch {
-          case _: TimeoutException =>
-            future.cancel(true)
-            failures += PeerFailure(instance, "timeout")
           case NonFatal(e) =>
             debug(s"Diagnostic request to $instance failed", e)
-            failures += PeerFailure(instance, "unavailable")
+            failures += PeerFailure(instance, peerFailureReason(e))
         }
       }
     }
@@ -382,6 +407,17 @@ private[server] class ClusterDiagnosticService(
       principal.clientIp,
       body)
     objectMapper.readValue(response, MAP_TYPE)
+  }
+
+  private def peerFailureReason(error: Throwable): String = {
+    val causes = Iterator.iterate(error)(_.getCause).takeWhile(_ != null).toSeq
+    if (causes.exists(cause =>
+        cause.isInstanceOf[java.net.SocketTimeoutException] ||
+          cause.getClass.getSimpleName == "ConnectTimeoutException")) {
+      "peer_timeout"
+    } else {
+      "peer_unavailable"
+    }
   }
 
   private def internalClient(instance: String): InternalRestClient =
@@ -449,7 +485,11 @@ private[server] class ClusterDiagnosticService(
       "omittedServers" -> Int.box(fanout.omittedServers),
       "fanoutLimit" -> Int.box(MAX_CLUSTER_PEERS),
       "respondedServers" -> Int.box(fanout.responses.size),
-      "fanoutMode" -> fanoutMode,
+      "countScope" -> (if (fanout.failures.nonEmpty) {
+                         "responded_servers_only"
+                       } else {
+                         "all_discovered_servers"
+                       }),
       "observedAt" -> Instant.now().toString)).asJava
   }
 
@@ -503,6 +543,12 @@ private[server] class ClusterDiagnosticService(
       "limit" -> Int.box(limit),
       "truncated" -> Boolean.box(truncated),
       "partial" -> Boolean.box(truncated || failures.nonEmpty),
+      "source" -> "ha_service_discovery",
+      "countScope" -> (if (truncated || failures.nonEmpty) {
+                         "observed_registrations_only"
+                       } else {
+                         "all_discovered_registrations"
+                       }),
       "failedServers" -> failedServers,
       "observedAt" -> Instant.now().toString).asJava
   }
@@ -519,18 +565,18 @@ private[server] class ClusterDiagnosticService(
     DiscoveryPaths.makePath(engineSpace, userOrGroup, engine.getSubdomain)
   }
 
-  private def newFanoutExecutor(): (ExecutorService, String) = {
+  private def newFanoutExecutor(): ExecutorService = {
     val javaVersion = System.getProperty("java.specification.version").split("\\.").last.toInt
     if (javaVersion >= 21) {
       info("Cluster diagnostics will use bounded Java virtual threads")
       ThreadUtils.newBoundedVirtualThreadPerTaskExecutor(
         MAX_CLUSTER_PEERS,
-        "cluster-diagnostics") -> "virtual_threads"
+        "cluster-diagnostics")
     } else {
       info("Cluster diagnostics will use a bounded platform thread pool")
       ThreadUtils.newDaemonFixedThreadPool(
         MAX_CONCURRENT_PEERS,
-        "cluster-diagnostics") -> "platform_pool"
+        "cluster-diagnostics")
     }
   }
 }
@@ -548,6 +594,10 @@ private[server] object ClusterDiagnosticService {
   private case class PeerResponse(
       instance: String,
       payload: java.util.Map[String, Object])
+  private case class PeerAttempt(
+      instance: String,
+      response: Option[PeerResponse],
+      failure: Option[PeerFailure])
   private case class PeerFailure(instance: String, reason: String)
   private case class FanoutResult(
       discoveredServers: Int,
