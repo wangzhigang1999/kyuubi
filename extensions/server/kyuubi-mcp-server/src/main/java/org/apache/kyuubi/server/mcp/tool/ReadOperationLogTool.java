@@ -46,7 +46,8 @@ public final class ReadOperationLogTool
 
   @Override
   public String description() {
-    return "Read a bounded portion of an accessible live operation log from any cluster server.";
+    return "Read a bounded portion of an accessible live operation log. Set server when the "
+        + "owning instance is already known to avoid cluster fanout.";
   }
 
   @Override
@@ -66,6 +67,7 @@ public final class ReadOperationLogTool
     put(values, "max_rows", arguments.maxRows());
     put(values, "max_bytes", arguments.maxBytes());
     put(values, "regex", arguments.regex());
+    put(values, "server", arguments.server());
     Response response =
         diagnostics.response(diagnostics.readOperationLog(values, caller), Response.class);
     if (response.found()) {
@@ -100,7 +102,12 @@ public final class ReadOperationLogTool
               "Optional Java regular expression matched against each line. Matching is "
                   + "case-sensitive unless the expression uses an inline flag such as (?i).")
           @McpToolProperty(minLength = 1, maxLength = 256)
-          String regex) {}
+          String regex,
+      @JsonProperty("server")
+          @JsonPropertyDescription(
+              "Optional exact diagnostic address returned by list_servers or a prior operation result. When set, only that server is queried.")
+          @McpToolProperty(minLength = 3, maxLength = 255)
+          String server) {}
 
   public record Response(
       @JsonProperty(required = true)
@@ -115,13 +122,14 @@ public final class ReadOperationLogTool
           @McpToolProperty(nullable = true)
           String server,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("True when the result does not cover every discovered server.")
+          @JsonPropertyDescription("True when the selected request scope was not fully queried.")
           boolean partial,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Failures that made this lookup incomplete.")
           List<PeerFailure> failedServers,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("Distinct Kyuubi Server registrations found by HA discovery.")
+          @JsonPropertyDescription(
+              "Servers selected after HA discovery and optional server filtering.")
           int discoveredServers,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Servers that successfully returned this diagnostic result.")

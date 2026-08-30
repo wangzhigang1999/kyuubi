@@ -44,7 +44,8 @@ public final class ListSessionsTool
   @Override
   public String description() {
     return "List live sessions visible to the authenticated user. When partial is true, an empty "
-        + "list means no matches on responded servers only.";
+        + "list means no matches on responded servers only. Set server to query one discovered "
+        + "instance without cluster fanout.";
   }
 
   @Override
@@ -68,6 +69,7 @@ public final class ListSessionsTool
     put(values, "user", arguments.user());
     put(values, "session_type", arguments.sessionType());
     put(values, "limit", arguments.limit());
+    put(values, "server", arguments.server());
     return KyuubiMcpTool.Result.success(
         diagnostics.response(diagnostics.listSessions(values, caller), Response.class));
   }
@@ -89,7 +91,12 @@ public final class ListSessionsTool
       @JsonProperty("limit")
           @JsonPropertyDescription("Maximum sessions returned across responded servers.")
           @McpToolProperty(minimum = 1, maximum = 200)
-          Integer limit) {}
+          Integer limit,
+      @JsonProperty("server")
+          @JsonPropertyDescription(
+              "Optional exact diagnostic address returned by list_servers. When set, only that server is queried.")
+          @McpToolProperty(minLength = 3, maxLength = 255)
+          String server) {}
 
   public record Response(
       @JsonProperty(required = true)
@@ -100,14 +107,15 @@ public final class ListSessionsTool
               "Returned sessions; not a cluster-wide total when partial is true.")
           int count,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("True when the result does not cover every discovered server.")
+          @JsonPropertyDescription("True when the selected request scope was not fully queried.")
           boolean partial,
       @JsonProperty(required = true)
           @JsonPropertyDescription(
               "Failures that made this result incomplete; a failure does not prove a process stopped.")
           List<PeerFailure> failedServers,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("Distinct Kyuubi Server registrations found by HA discovery.")
+          @JsonPropertyDescription(
+              "Servers selected after HA discovery and optional server filtering.")
           int discoveredServers,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Servers that successfully returned this diagnostic result.")
@@ -127,7 +135,8 @@ public final class ListSessionsTool
       @JsonProperty(required = true) @JsonPropertyDescription("Kyuubi session type.")
           SessionType sessionType,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("Kyuubi Server instance that owns the session.")
+          @JsonPropertyDescription(
+              "Diagnostic address of the Kyuubi Server that owns the session; accepted by the server argument.")
           String server,
       @JsonProperty(required = true)
           @JsonPropertyDescription("UTC time when the session opened.")

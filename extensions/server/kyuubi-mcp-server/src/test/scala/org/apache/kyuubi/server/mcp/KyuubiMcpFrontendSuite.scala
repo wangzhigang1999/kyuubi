@@ -56,6 +56,7 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(tools.contains("\"maximum\":200"))
     assert(tools.contains("\"created_after\""))
     assert(tools.contains("\"regex\""))
+    assert(tools.contains("Optional exact diagnostic address returned by list_servers"))
     assert(tools.contains("\"pattern\":\"^[A-Za-z0-9_-]+$\""))
     assert(tools.contains("\"outputSchema\""))
     assert(tools.contains("\"additionalProperties\":{\"type\":\"integer\"}"), tools)
@@ -81,6 +82,24 @@ class KyuubiMcpFrontendSuite extends RestFrontendTestHelper {
     assert(runtime.contains("\"partial\":false"))
     assert(!runtime.contains("inputArguments"))
     assert(!runtime.contains("systemProperties"))
+    val localServer = "\"server\":\"([^\"]+)\"".r
+      .findFirstMatchIn(runtime).map(_.group(1)).get
+
+    val targetedResponse = call(
+      s"""{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"list_sessions","arguments":{"server":"$localServer"}}}""")
+    assert(targetedResponse.getStatus === 200)
+    val targeted = targetedResponse.readEntity(classOf[String])
+    assert(targeted.contains("\"isError\":false"))
+    assert(targeted.contains("\"partial\":false"))
+    assert(targeted.contains("\"discoveredServers\":1"))
+    assert(targeted.contains("\"respondedServers\":1"))
+
+    val unknownServerResponse = call(
+      """{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"list_sessions","arguments":{"server":"not-registered:10099"}}}""")
+    assert(unknownServerResponse.getStatus === 200)
+    val unknownServer = unknownServerResponse.readEntity(classOf[String])
+    assert(unknownServer.contains("\"isError\":true"))
+    assert(unknownServer.contains("address returned by list_servers"))
 
     val callResponse = call(
       """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_sessions",""" +

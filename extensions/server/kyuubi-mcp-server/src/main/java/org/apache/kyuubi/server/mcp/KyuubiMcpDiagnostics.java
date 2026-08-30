@@ -46,8 +46,9 @@ public final class KyuubiMcpDiagnostics implements AutoCloseable {
     return delegate.listServers(principal(caller));
   }
 
-  public Map<String, Object> serverRuntime(KyuubiMcpTool.Caller caller) {
-    return delegate.serverRuntime(principal(caller));
+  public Map<String, Object> serverRuntime(
+      Map<String, Object> arguments, KyuubiMcpTool.Caller caller) {
+    return delegate.serverRuntime(toScala(arguments), principal(caller));
   }
 
   public Map<String, Object> listEngines(

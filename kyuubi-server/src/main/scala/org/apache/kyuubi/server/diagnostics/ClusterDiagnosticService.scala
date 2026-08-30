@@ -206,8 +206,9 @@ private[server] class ClusterDiagnosticService(
   }
 
   def serverRuntime(
+      arguments: Map[String, AnyRef],
       principal: DiagnosticPrincipal): java.util.Map[String, Object] = {
-    val fanout = executeAcrossCluster(GET_SERVER_RUNTIME, Map.empty, principal)
+    val fanout = executeAcrossCluster(GET_SERVER_RUNTIME, arguments, principal)
     envelope(
       Map[String, Object](
         "serverRuntimes" -> fanout.responses.map(_.payload).asJava,
@@ -298,7 +299,13 @@ private[server] class ClusterDiagnosticService(
       createdAtName: String,
       limit: Int): java.util.Map[String, Object] = {
     val fanout = executeAcrossCluster(action, arguments, principal)
-    val items = fanout.responses.flatMap(response => listValues(response.payload, "items"))
+    val items = fanout.responses.flatMap { response =>
+      listValues(response.payload, "items").map { item =>
+        val attributed = new java.util.HashMap[String, Object](item)
+        attributed.put("server", response.instance)
+        attributed
+      }
+    }
       .groupBy(item => Option(item.get(identifierName)).map(_.toString).getOrElse(""))
       .values
       .map(_.head)
@@ -344,11 +351,20 @@ private[server] class ClusterDiagnosticService(
     val discovery = discoverInstances()
     val allInstances = discovery.instances
     val localInstance = normalizeInstance(frontendService.connectionUrl)
-    val instances = (localInstance +: allInstances.filterNot(_ == localInstance))
-      .take(MAX_CLUSTER_PEERS)
+    val discoveredInstances = localInstance +: allInstances.filterNot(_ == localInstance)
+    val requestedServer = stringArgument(arguments, TARGET_SERVER_ARGUMENT)
+      .map(normalizeInstance)
+    val instances = requestedServer match {
+      case Some(server) if discoveredInstances.contains(server) => Seq(server)
+      case Some(_) =>
+        throw new IllegalArgumentException(
+          s"$TARGET_SERVER_ARGUMENT must match an address returned by list_servers")
+      case None => discoveredInstances.take(MAX_CLUSTER_PEERS)
+    }
+    val diagnosticArguments = arguments - TARGET_SERVER_ARGUMENT
     val failures = ListBuffer[PeerFailure]() ++ discovery.failures
-    val omittedServers = allInstances.size - instances.size
-    if (omittedServers > 0) {
+    val omittedServers = discoveredInstances.size - instances.size
+    if (requestedServer.isEmpty && omittedServers > 0) {
       failures += PeerFailure(
         "cluster-fanout",
         s"$omittedServers servers omitted by the $MAX_CLUSTER_PEERS-server fanout limit")
@@ -369,7 +385,9 @@ private[server] class ClusterDiagnosticService(
           try {
             PeerAttempt(
               instance,
-              Some(PeerResponse(instance, executeRemote(instance, action, arguments, principal))),
+              Some(PeerResponse(
+                instance,
+                executeRemote(instance, action, diagnosticArguments, principal))),
               None)
           } catch {
             case NonFatal(e) =>
@@ -385,7 +403,7 @@ private[server] class ClusterDiagnosticService(
       try {
         responses += PeerResponse(
           localInstance,
-          localDiagnostics.execute(action, arguments, principal))
+          localDiagnostics.execute(action, diagnosticArguments, principal))
       } catch {
         case NonFatal(e) =>
           error("Local diagnostic request failed", e)
@@ -420,7 +438,10 @@ private[server] class ClusterDiagnosticService(
         }
       }
     }
-    val result = FanoutResult(allInstances.size, responses.toSeq, failures.toSeq)
+    val result = FanoutResult(
+      requestedServer.fold(discoveredInstances.size)(_ => 1),
+      responses.toSeq,
+      failures.toSeq)
     if (discovery.failures.isEmpty) {
       pruneClients(allInstances.toSet)
     }
@@ -605,6 +626,7 @@ private[server] object ClusterDiagnosticService {
   private val PEER_CONNECT_TIMEOUT_MS = 1500
   private val PEER_SOCKET_TIMEOUT_MS = 4000
   private val FANOUT_DEADLINE_MS = 5000L
+  private val TARGET_SERVER_ARGUMENT = "server"
   private val MAP_TYPE = new TypeReference[java.util.Map[String, Object]]() {}
 
   private case class PeerResponse(

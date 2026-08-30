@@ -45,8 +45,8 @@ public final class ListOperationsTool
   public String description() {
     return "List live operations visible to the authenticated user. Prefer one relevant state "
         + "filter instead of exhaustive parallel calls. Results are ordered by creation time, "
-        + "newest first. When partial is true, an empty list means no matches on responded "
-        + "servers only.";
+        + "newest first. Set server to query one discovered instance without cluster fanout. "
+        + "When partial is true, an empty list means no matches on responded servers only.";
   }
 
   @Override
@@ -73,6 +73,7 @@ public final class ListOperationsTool
     put(values, "created_after", arguments.createdAfter());
     put(values, "created_before", arguments.createdBefore());
     put(values, "limit", arguments.limit());
+    put(values, "server", arguments.server());
     return KyuubiMcpTool.Result.success(
         diagnostics.response(diagnostics.listOperations(values, caller), Response.class));
   }
@@ -108,7 +109,12 @@ public final class ListOperationsTool
           @JsonPropertyDescription(
               "Maximum operations returned across responded servers, newest first.")
           @McpToolProperty(minimum = 1, maximum = 200)
-          Integer limit) {}
+          Integer limit,
+      @JsonProperty("server")
+          @JsonPropertyDescription(
+              "Optional exact diagnostic address returned by list_servers. When set, only that server is queried.")
+          @McpToolProperty(minLength = 3, maxLength = 255)
+          String server) {}
 
   public record Response(
       @JsonProperty(required = true)
@@ -120,13 +126,14 @@ public final class ListOperationsTool
               "Returned operations; not a cluster-wide total when partial is true.")
           int count,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("True when the result does not cover every discovered server.")
+          @JsonPropertyDescription("True when the selected request scope was not fully queried.")
           boolean partial,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Failures that made this result incomplete.")
           List<PeerFailure> failedServers,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("Distinct Kyuubi Server registrations found by HA discovery.")
+          @JsonPropertyDescription(
+              "Servers selected after HA discovery and optional server filtering.")
           int discoveredServers,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Servers that successfully returned this diagnostic result.")
@@ -162,7 +169,8 @@ public final class ListOperationsTool
       @JsonProperty(required = true) @JsonPropertyDescription("Type of the operation's session.")
           SessionType sessionType,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("Kyuubi Server instance that owns the operation.")
+          @JsonPropertyDescription(
+              "Diagnostic address of the Kyuubi Server that owns the operation; accepted by the server argument.")
           String server,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Bounded operation metrics exposed by Kyuubi.")

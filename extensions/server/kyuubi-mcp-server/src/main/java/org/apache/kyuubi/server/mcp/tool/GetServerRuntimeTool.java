@@ -19,7 +19,9 @@ package org.apache.kyuubi.server.mcp.tool;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.apache.kyuubi.server.mcp.KyuubiMcpDiagnostics;
 import org.apache.kyuubi.server.mcp.McpToolProperty;
 
@@ -42,7 +44,7 @@ public final class GetServerRuntimeTool
   @Override
   public String description() {
     return "Inspect bounded JVM, memory, thread, uptime, and host-load metrics on every reachable "
-        + "Kyuubi Server. Administrators only.";
+        + "Kyuubi Server, or set server to inspect one discovered instance. Administrators only.";
   }
 
   @Override
@@ -61,11 +63,20 @@ public final class GetServerRuntimeTool
       return KyuubiMcpTool.Result.denied(
           "Inspecting Kyuubi Server runtime metrics requires administrator permission.");
     }
+    Map<String, Object> values = new HashMap<>();
+    if (arguments.server() != null) {
+      values.put("server", arguments.server());
+    }
     return KyuubiMcpTool.Result.success(
-        diagnostics.response(diagnostics.serverRuntime(caller), Response.class));
+        diagnostics.response(diagnostics.serverRuntime(values, caller), Response.class));
   }
 
-  public record Args() {}
+  public record Args(
+      @JsonProperty("server")
+          @JsonPropertyDescription(
+              "Optional exact diagnostic address returned by list_servers. When set, only that server is queried.")
+          @McpToolProperty(minLength = 3, maxLength = 255)
+          String server) {}
 
   public record Response(
       @JsonProperty(required = true)
@@ -75,14 +86,15 @@ public final class GetServerRuntimeTool
           @JsonPropertyDescription("Number of returned runtime snapshots.")
           int count,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("True when the result does not cover every discovered server.")
+          @JsonPropertyDescription("True when the selected request scope was not fully queried.")
           boolean partial,
       @JsonProperty(required = true)
           @JsonPropertyDescription(
               "Failures that made this result incomplete; a failure does not prove a process stopped.")
           List<PeerFailure> failedServers,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("Distinct Kyuubi Server registrations found by HA discovery.")
+          @JsonPropertyDescription(
+              "Servers selected after HA discovery and optional server filtering.")
           int discoveredServers,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Servers that successfully returned this diagnostic result.")

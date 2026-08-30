@@ -44,6 +44,7 @@ public final class GetClusterOverviewTool
   @Override
   public String description() {
     return "Call first to summarize server reachability and live session and operation health. "
+        + "Set server to inspect one discovered instance without cluster fanout. "
         + "When partial is true, counts cover responded servers only and zero never proves "
         + "cluster-wide absence.";
   }
@@ -69,6 +70,9 @@ public final class GetClusterOverviewTool
     if (arguments.user() != null) {
       values.put("user", arguments.user());
     }
+    if (arguments.server() != null) {
+      values.put("server", arguments.server());
+    }
     return KyuubiMcpTool.Result.success(
         diagnostics.response(diagnostics.clusterOverview(values, caller), Response.class));
   }
@@ -78,7 +82,12 @@ public final class GetClusterOverviewTool
           @JsonPropertyDescription(
               "User to inspect. A different user requires administrator permission.")
           @McpToolProperty(maxLength = 256)
-          String user) {}
+          String user,
+      @JsonProperty("server")
+          @JsonPropertyDescription(
+              "Optional exact diagnostic address returned by list_servers. When set, only that server is queried.")
+          @McpToolProperty(minLength = 3, maxLength = 255)
+          String server) {}
 
   public record Response(
       @JsonProperty(required = true)
@@ -100,7 +109,7 @@ public final class GetClusterOverviewTool
           List<ServerSummary> servers,
       @JsonProperty(required = true)
           @JsonPropertyDescription(
-              "True when the result does not cover every discovered server. Empty results then cover responded servers only.")
+              "True when the selected request scope was not fully queried. Empty results then cover responded servers only.")
           boolean partial,
       @JsonProperty(required = true)
           @JsonPropertyDescription(
@@ -108,7 +117,7 @@ public final class GetClusterOverviewTool
           List<PeerFailure> failedServers,
       @JsonProperty(required = true)
           @JsonPropertyDescription(
-              "Distinct Kyuubi Server registrations found by HA discovery; registration does not prove reachability.")
+              "Servers selected after HA discovery and optional server filtering; registration does not prove reachability.")
           int discoveredServers,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Servers that successfully returned this diagnostic result.")

@@ -44,7 +44,8 @@ public final class ListServerLogsTool
   @Override
   public String description() {
     return "List allowlisted Kyuubi Server log files on responded cluster nodes. Check partial and "
-        + "failedServers before concluding that logs are absent. Administrators only.";
+        + "failedServers before concluding that logs are absent. Set server to inspect one "
+        + "discovered instance. Administrators only.";
   }
 
   @Override
@@ -66,6 +67,7 @@ public final class ListServerLogsTool
     Map<String, Object> values = new HashMap<>();
     if (arguments.contains() != null) values.put("contains", arguments.contains());
     if (arguments.limit() != null) values.put("limit", arguments.limit());
+    if (arguments.server() != null) values.put("server", arguments.server());
     return KyuubiMcpTool.Result.success(
         diagnostics.response(diagnostics.listServerLogs(values, caller), Response.class));
   }
@@ -79,7 +81,12 @@ public final class ListServerLogsTool
       @JsonProperty("limit")
           @JsonPropertyDescription("Maximum log files returned across responded servers.")
           @McpToolProperty(minimum = 1, maximum = 200)
-          Integer limit) {}
+          Integer limit,
+      @JsonProperty("server")
+          @JsonPropertyDescription(
+              "Optional exact diagnostic address returned by list_servers. When set, only that server is queried.")
+          @McpToolProperty(minLength = 3, maxLength = 255)
+          String server) {}
 
   public record Response(
       @JsonProperty(required = true)
@@ -93,13 +100,14 @@ public final class ListServerLogsTool
               "Responded servers where KYUUBI_LOG_DIR enabled protected file-log access.")
           int enabledServers,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("True when the result does not cover every discovered server.")
+          @JsonPropertyDescription("True when the selected request scope was not fully queried.")
           boolean partial,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Failures that made this result incomplete.")
           List<PeerFailure> failedServers,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("Distinct Kyuubi Server registrations found by HA discovery.")
+          @JsonPropertyDescription(
+              "Servers selected after HA discovery and optional server filtering.")
           int discoveredServers,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Servers that successfully returned this diagnostic result.")

@@ -19,6 +19,7 @@ package org.apache.kyuubi.server.mcp.tool;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.kyuubi.server.mcp.KyuubiMcpDiagnostics;
@@ -45,7 +46,8 @@ public final class GetSessionTool
 
   @Override
   public String description() {
-    return "Get a live session by its stable identifier from any server in the cluster.";
+    return "Get a live session by its stable identifier. Set server when the owning instance is "
+        + "already known to avoid cluster fanout.";
   }
 
   @Override
@@ -60,10 +62,13 @@ public final class GetSessionTool
 
   @Override
   public KyuubiMcpTool.Result<Response> call(KyuubiMcpTool.Caller caller, Args arguments) {
+    Map<String, Object> values = new HashMap<>();
+    values.put("session_id", arguments.sessionId());
+    if (arguments.server() != null) {
+      values.put("server", arguments.server());
+    }
     Response response =
-        diagnostics.response(
-            diagnostics.getSession(Map.of("session_id", arguments.sessionId()), caller),
-            Response.class);
+        diagnostics.response(diagnostics.getSession(values, caller), Response.class);
     if (response.found()) {
       return KyuubiMcpTool.Result.success(response);
     }
@@ -76,7 +81,12 @@ public final class GetSessionTool
       @JsonProperty(value = "session_id", required = true)
           @JsonPropertyDescription("Stable Kyuubi session identifier.")
           @McpToolProperty(minLength = 1, maxLength = 128, pattern = "^[A-Za-z0-9_-]+$")
-          String sessionId) {}
+          String sessionId,
+      @JsonProperty("server")
+          @JsonPropertyDescription(
+              "Optional exact diagnostic address returned by list_servers or a prior session result. When set, only that server is queried.")
+          @McpToolProperty(minLength = 3, maxLength = 255)
+          String server) {}
 
   public record Response(
       @JsonProperty(required = true)
@@ -90,13 +100,14 @@ public final class GetSessionTool
           @McpToolProperty(nullable = true)
           String server,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("True when the result does not cover every discovered server.")
+          @JsonPropertyDescription("True when the selected request scope was not fully queried.")
           boolean partial,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Failures that made this lookup incomplete.")
           List<PeerFailure> failedServers,
       @JsonProperty(required = true)
-          @JsonPropertyDescription("Distinct Kyuubi Server registrations found by HA discovery.")
+          @JsonPropertyDescription(
+              "Servers selected after HA discovery and optional server filtering.")
           int discoveredServers,
       @JsonProperty(required = true)
           @JsonPropertyDescription("Servers that successfully returned this diagnostic result.")
